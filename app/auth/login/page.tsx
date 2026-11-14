@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 import { useAuthStore, useCartStore, useFavoritesStore } from "@/lib/store"
+import { safeRedirectPath } from '@/lib/safe-redirect'
 
 function LoginForm() {
   const [showPassword, setShowPassword] = useState(false)
@@ -19,7 +20,7 @@ function LoginForm() {
 
   const router = useRouter()
   const searchParams = useSearchParams()
-  const redirectTo = searchParams.get('redirect') || '/'
+  const redirectTo = safeRedirectPath(searchParams.get('redirect'))
   
   const [formData, setFormData] = useState({
     email: "",
@@ -171,7 +172,7 @@ function LoginForm() {
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: `${window.location.origin}/auth/callback?next=${redirectTo}`,
+          redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirectTo)}`,
         },
       })
 

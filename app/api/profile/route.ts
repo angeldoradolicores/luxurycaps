@@ -10,9 +10,18 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
-    const { fullName, phone, birthDate } = await request.json()
+    const { fullName, phone, birthDate } = (await request.json().catch(() => null)) ?? {}
     if (!fullName && phone === undefined && birthDate === undefined) {
       return NextResponse.json({ error: 'No hay datos para actualizar' }, { status: 400 })
+    }
+    if (fullName !== undefined && (typeof fullName !== 'string' || fullName.trim().length > 120)) {
+      return NextResponse.json({ error: 'Nombre inválido' }, { status: 400 })
+    }
+    if (phone && (typeof phone !== 'string' || !/^[0-9+ ()-]{7,20}$/.test(phone))) {
+      return NextResponse.json({ error: 'Teléfono inválido' }, { status: 400 })
+    }
+    if (birthDate && (typeof birthDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(birthDate) || Number.isNaN(Date.parse(birthDate)))) {
+      return NextResponse.json({ error: 'Fecha de nacimiento inválida' }, { status: 400 })
     }
 
     const supabaseAdmin = createAdminClient()
@@ -22,13 +31,13 @@ export async function PUT(request: Request) {
       .eq('id', user.id)
 
     if (error) {
-      console.error('[profile] update error', error)
+      console.error('[profile] update error', { code: error.code })
       return NextResponse.json({ error: 'Error al actualizar perfil' }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('[profile] route error', error)
+    console.error('[profile] route error', { msg: (error as Error).message })
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })
   }
 }

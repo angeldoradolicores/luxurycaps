@@ -10,6 +10,26 @@ const transporter = gmailUser && gmailPass ? nodemailer.createTransport({
   },
 }) : null
 
+/** Escapa texto para insertarlo en HTML de correos (evita inyección de enlaces/HTML de phishing). */
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/** Solo URLs http(s) válidas; cualquier otra cosa (javascript:, data:, texto) se descarta. */
+function safeUrl(value: unknown): string | null {
+  try {
+    const u = new URL(String(value))
+    return u.protocol === 'https:' || u.protocol === 'http:' ? escapeHtml(u.toString()) : null
+  } catch {
+    return null
+  }
+}
+
 interface TrackingInfo {
   carrier?: string
   trackingNumber?: string
@@ -20,7 +40,7 @@ interface TrackingInfo {
 export async function sendConfirmationEmail(to: string, actionLink: string, fullName = '') {
   const fromEmail = gmailUser ? `Urban Crown <${gmailUser}>` : 'Urban Crown <urbancrowncol4@gmail.com>'
   const subject = '✨ Confirma tu cuenta URBAN CROWN'
-  const firstName = fullName?.split(' ')[0] || 'Amigo'
+  const firstName = escapeHtml((fullName?.split(' ')[0] || 'Amigo').slice(0, 40))
 
   const html = `
     <!DOCTYPE html>
@@ -41,9 +61,9 @@ export async function sendConfirmationEmail(to: string, actionLink: string, full
             <div style="padding:32px;background:#111111;">
               <p style="margin:0 0 20px 0;font-size:16px;color:#dddddd;">Hola ${firstName},</p>
               <p style="margin:0 0 24px 0;font-size:15px;color:#999999;line-height:1.8;">Tu cuenta URBAN CROWN ya está casi lista. Solo falta un paso: confirma tu email para activar tu acceso premium.</p>
-              <a href="${actionLink}" style="display:inline-flex;align-items:center;justify-content:center;width:100%;padding:16px 20px;margin:0 auto 24px auto;background:#E2B13C;color:#000000;font-weight:800;text-transform:uppercase;letter-spacing:1px;border-radius:14px;text-decoration:none;font-size:14px;">Confirmar mi cuenta</a>
+              <a href="${escapeHtml(actionLink)}" style="display:inline-flex;align-items:center;justify-content:center;width:100%;padding:16px 20px;margin:0 auto 24px auto;background:#E2B13C;color:#000000;font-weight:800;text-transform:uppercase;letter-spacing:1px;border-radius:14px;text-decoration:none;font-size:14px;">Confirmar mi cuenta</a>
               <p style="margin:0;font-size:14px;color:#7f7f7f;line-height:1.8;">Si el botón no funciona, copia y pega el siguiente enlace en tu navegador:</p>
-              <p style="margin:16px 0 0 0;padding:16px;background:rgba(255,255,255,.04);border-radius:14px;font-size:13px;color:#f2f2f2;word-break:break-all;">${actionLink}</p>
+              <p style="margin:16px 0 0 0;padding:16px;background:rgba(255,255,255,.04);border-radius:14px;font-size:13px;color:#f2f2f2;word-break:break-all;">${escapeHtml(actionLink)}</p>
             </div>
 
             <div style="padding:24px 32px 32px;background:#0b0b0b;text-align:center;"> 
@@ -165,9 +185,9 @@ export async function sendOrderStatusEmail(
       <div style="padding: 12px 0; border-bottom: 1px solid #222;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div>
-            <p style="margin: 0; font-weight: bold; color: #ffffff; font-size: 14px;">${item.product_name}</p>
+            <p style="margin: 0; font-weight: bold; color: #ffffff; font-size: 14px;">${escapeHtml(item.product_name)}</p>
             <p style="margin: 4px 0 0 0; color: #888888; font-size: 12px;">
-              ${[item.color && `Color: ${item.color}`, item.size && `Talla: ${item.size}`, `Cant: ${item.quantity}`]
+              ${[item.color && `Color: ${escapeHtml(item.color)}`, item.size && `Talla: ${escapeHtml(item.size)}`, `Cant: ${escapeHtml(item.quantity)}`]
                 .filter(Boolean)
                 .join(' · ')}
             </p>
@@ -192,18 +212,18 @@ export async function sendOrderStatusEmail(
         <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #dddddd;">
           <tr>
             <td style="padding: 4px 0; color: #888888; width: 120px;">Transportadora:</td>
-            <td style="padding: 4px 0; font-weight: bold; color: #ffffff;">${tracking.carrier || 'InterRapidisimo'}</td>
+            <td style="padding: 4px 0; font-weight: bold; color: #ffffff;">${escapeHtml(tracking.carrier || 'InterRapidisimo')}</td>
           </tr>
           <tr>
             <td style="padding: 4px 0; color: #888888;">Número de Guía:</td>
-            <td style="padding: 4px 0; font-family: monospace; font-weight: bold; color: #ffffff;">${tracking.trackingNumber}</td>
+            <td style="padding: 4px 0; font-family: monospace; font-weight: bold; color: #ffffff;">${escapeHtml(tracking.trackingNumber)}</td>
           </tr>
         </table>
         ${
-          tracking.trackingPhotoUrl
+          safeUrl(tracking.trackingPhotoUrl)
             ? `
           <div style="margin-top: 12px;">
-            <a href="${tracking.trackingPhotoUrl}" target="_blank" style="display: inline-block; color: #00FFFF; text-decoration: underline; font-size: 13px;">
+            <a href="${safeUrl(tracking.trackingPhotoUrl)}" target="_blank" style="display: inline-block; color: #00FFFF; text-decoration: underline; font-size: 13px;">
               Ver foto del comprobante de envío
             </a>
           </div>`
@@ -213,7 +233,7 @@ export async function sendOrderStatusEmail(
           tracking.adminNote
             ? `
           <div style="margin-top: 12px; border-top: 1px solid #222; padding-top: 12px; font-style: italic; color: #888888; font-size: 13px;">
-            "Note: ${tracking.adminNote}"
+            "Note: ${escapeHtml(tracking.adminNote)}"
           </div>`
             : ''
         }
@@ -284,7 +304,7 @@ export async function sendOrderStatusEmail(
 
     <!-- Call to Action -->
     <div style="padding: 0 30px 40px 30px; text-align: center;">
-      <a href="${process.env.NEXT_PUBLIC_SITE_URL || 'https://urbancrown.co'}/pedidos?order_number=${orderNumber}&email=${encodeURIComponent(to)}" target="_blank" style="display: inline-block; background-color: #E2B13C; color: #000000; padding: 14px 28px; border-radius: 9999px; text-decoration: none; font-weight: bold; font-size: 14px; letter-spacing: 1px; transition: transform 0.2s;">
+      <a href="${process.env.NEXT_PUBLIC_SITE_URL || 'https://urbancrown.co'}/pedidos?order_number=${encodeURIComponent(orderNumber)}&email=${encodeURIComponent(to)}" target="_blank" style="display: inline-block; background-color: #E2B13C; color: #000000; padding: 14px 28px; border-radius: 9999px; text-decoration: none; font-weight: bold; font-size: 14px; letter-spacing: 1px; transition: transform 0.2s;">
         SEGUIR MI PEDIDO EN LA WEB
       </a>
     </div>

@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
+import { limitByIp } from '@/lib/rate-limit'
 
 // Listado público: SIN el código (los códigos no deben poder enumerarse)
 export async function GET() {
@@ -28,6 +29,10 @@ export async function GET() {
 // El descuento REAL lo recalcula /api/orders en el servidor.
 export async function POST(request: Request) {
   try {
+    // Evita adivinar códigos por fuerza bruta
+    const limited = await limitByIp(request, 'promotions:validate:ip', 10, 600)
+    if (limited) return limited
+
     const body = await request.json().catch(() => null)
     const code = typeof body?.code === 'string' ? body.code.trim().toUpperCase() : ''
     if (!code || code.length > 40) {

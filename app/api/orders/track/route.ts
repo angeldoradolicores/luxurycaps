@@ -1,8 +1,13 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
+import { limitByIp } from '@/lib/rate-limit'
 
 export async function GET(request: Request) {
   try {
+    // Polling de invitados: 1 cada 30 s (≈20/10 min) + búsquedas manuales
+    const limited = await limitByIp(request, 'orders:track:ip', 40, 600)
+    if (limited) return limited
+
     const { searchParams } = new URL(request.url)
     const orderNumber = searchParams.get('order_number')?.trim()
     const email = searchParams.get('email')?.trim().toLowerCase()

@@ -1,13 +1,14 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export async function GET() {
   try {
     const supabase = await createClient()
     const { data: { user }, error: userError } = await supabase.auth.getUser()
 
     if (userError) {
-      console.error('[favorites GET] getUser error:', userError.message)
       return NextResponse.json({ items: [], userId: null })
     }
 
@@ -21,7 +22,7 @@ export async function GET() {
       .eq('user_id', user.id)
 
     if (error) {
-      console.warn('[favorites GET] Query error:', error.message)
+      console.warn('[favorites GET] Query error', { code: error.code })
       return NextResponse.json({ items: [], userId: user.id })
     }
 
@@ -58,11 +59,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const body = await req.json()
-    const { product_id } = body
+    const body = await req.json().catch(() => null)
+    const product_id = body?.product_id
 
-    if (!product_id) {
-      return NextResponse.json({ error: 'Missing product_id' }, { status: 400 })
+    if (typeof product_id !== 'string' || !UUID.test(product_id)) {
+      return NextResponse.json({ error: 'Producto inválido' }, { status: 400 })
     }
 
     const { error } = await supabase
@@ -75,8 +76,8 @@ export async function POST(req: Request) {
       })
 
     if (error) {
-      console.error('[favorites POST] Error:', error.message)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      console.error('[favorites POST] Error', { code: error.code })
+      return NextResponse.json({ error: 'No se pudo guardar el favorito' }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })
@@ -95,11 +96,11 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const body = await req.json()
-    const { product_id } = body
+    const body = await req.json().catch(() => null)
+    const product_id = body?.product_id
 
-    if (!product_id) {
-      return NextResponse.json({ error: 'Missing product_id' }, { status: 400 })
+    if (typeof product_id !== 'string' || !UUID.test(product_id)) {
+      return NextResponse.json({ error: 'Producto inválido' }, { status: 400 })
     }
 
     const { error } = await supabase
@@ -109,8 +110,8 @@ export async function DELETE(req: Request) {
       .eq('product_id', product_id)
 
     if (error) {
-      console.error('[favorites DELETE] Error:', error.message)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      console.error('[favorites DELETE] Error', { code: error.code })
+      return NextResponse.json({ error: 'No se pudo eliminar el favorito' }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })

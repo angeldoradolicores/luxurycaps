@@ -136,7 +136,6 @@ export const useCartStore = create<CartStore>((set, get) => ({
   },
   setUserId: (userId) => {
     const previousUserId = get().userId
-    console.log('[setUserId] Switching from', previousUserId, 'to', userId)
     
     if (previousUserId === userId) {
       set({ userId })
@@ -148,7 +147,6 @@ export const useCartStore = create<CartStore>((set, get) => ({
       const guestItems = loadLocalCart(null)
       const userItems = loadLocalCart(userId)
       
-      console.log('[setUserId] Guest items:', guestItems.length, 'User items:', userItems.length)
 
       const map = new Map<string, CartItem>()
       userItems.forEach(i => map.set(i.id, { ...i }))
@@ -162,7 +160,6 @@ export const useCartStore = create<CartStore>((set, get) => ({
       })
 
       const merged = Array.from(map.values())
-      console.log('[setUserId] Merged to', merged.length, 'items')
       set({ userId, items: merged })
       saveLocalCart(merged, userId)
 
@@ -172,9 +169,9 @@ export const useCartStore = create<CartStore>((set, get) => ({
         supabase.from('cart_items').upsert({
           user_id: userId,
           product_id: item.product.id,
-          quantity: item.quantity,
-          selected_color: item.selectedColor,
-          selected_size: item.selectedSize,
+          quantity: Math.min(Math.max(item.quantity, 1), 20),
+          selected_color: item.selectedColor || '',
+          selected_size: item.selectedSize || '',
         }, { onConflict: 'user_id,product_id,selected_color,selected_size' }).then(({ error }) => {
           if (error) console.error('Error upserting merged cart item:', error.message)
         })
@@ -184,7 +181,6 @@ export const useCartStore = create<CartStore>((set, get) => ({
 
     // switching to guest (logout)
     const guest = loadLocalCart(null)
-    console.log('[setUserId] Logout - keeping', guest.length, 'guest items')
     set({ userId: null, items: guest })
   },
   addItem: (product, color, size, quantity = 1) => {
@@ -192,7 +188,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
     const existingItem = get().items.find((i) => i.id === itemId)
     const newItems = existingItem
       ? get().items.map((i) =>
-          i.id === itemId ? { ...i, quantity: i.quantity + quantity } : i
+          i.id === itemId ? { ...i, quantity: Math.min(i.quantity + quantity, 20) } : i
         )
       : [...get().items, { id: itemId, product, quantity, selectedColor: color, selectedSize: size }]
 
@@ -206,7 +202,6 @@ export const useCartStore = create<CartStore>((set, get) => ({
     const persistViaAPI = async (uid: string | null) => {
       if (!uid) return
       try {
-        console.log('[addItem] Persisting to API for user:', uid)
         const res = await fetch('/api/cart', {
           method: 'POST',
           credentials: 'include',
@@ -214,15 +209,14 @@ export const useCartStore = create<CartStore>((set, get) => ({
           body: JSON.stringify({
             product_id: product.id,
             quantity: item.quantity,
-            selected_color: color || null,
-            selected_size: size || null,
+            selected_color: color || '',
+            selected_size: size || '',
           }),
         })
         if (!res.ok) {
           const text = await res.text()
           console.error('[addItem] Error syncing cart item:', res.statusText, text)
         } else {
-          console.log('[addItem] Successfully synced cart item')
         }
       } catch (err) {
         console.error('[addItem] Error syncing cart item:', err)
@@ -232,15 +226,12 @@ export const useCartStore = create<CartStore>((set, get) => ({
     if (currentUserId) {
       persistViaAPI(currentUserId)
     } else {
-      console.log('[addItem] No userId, attempting syncCartFromServer')
       // If no userId, try to sync from server first
       get().syncCartFromServer().then(() => {
         const uid = get().userId
         if (uid) {
-          console.log('[addItem] Got userId after sync:', uid)
           persistViaAPI(uid)
         } else {
-          console.log('[addItem] Still no userId after sync')
         }
       })
     }
@@ -263,8 +254,8 @@ export const useCartStore = create<CartStore>((set, get) => ({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             product_id: itemToRemove.product.id,
-            selected_color: itemToRemove.selectedColor || null,
-            selected_size: itemToRemove.selectedSize || null,
+            selected_color: itemToRemove.selectedColor || '',
+            selected_size: itemToRemove.selectedSize || '',
           }),
         })
         if (!res.ok) console.error('Error syncing cart item removal:', res.statusText)
@@ -289,7 +280,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
     const itemToUpdate = get().items.find((i) => i.id === itemId)
     if (!itemToUpdate) return
 
-    const clampedQuantity = Math.max(0, Math.min(quantity, itemToUpdate.product.stock || 0))
+    const clampedQuantity = Math.max(0, Math.min(quantity, itemToUpdate.product.stock || 0, 20))
     const newItems = clampedQuantity === 0
       ? get().items.filter((i) => i.id !== itemId)
       : get().items.map((i) =>
@@ -309,8 +300,8 @@ export const useCartStore = create<CartStore>((set, get) => ({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               product_id: itemToUpdate.product.id,
-              selected_color: itemToUpdate.selectedColor || null,
-              selected_size: itemToUpdate.selectedSize || null,
+              selected_color: itemToUpdate.selectedColor || '',
+              selected_size: itemToUpdate.selectedSize || '',
             }),
           })
           if (!res.ok) console.error('Error syncing cart item removal:', res.statusText)
@@ -322,8 +313,8 @@ export const useCartStore = create<CartStore>((set, get) => ({
             body: JSON.stringify({
               product_id: itemToUpdate.product.id,
               quantity,
-              selected_color: itemToUpdate.selectedColor || null,
-              selected_size: itemToUpdate.selectedSize || null,
+              selected_color: itemToUpdate.selectedColor || '',
+              selected_size: itemToUpdate.selectedSize || '',
             }),
           })
           if (!res.ok) console.error('Error syncing cart item quantity:', res.statusText)
@@ -457,9 +448,9 @@ export const useCartStore = create<CartStore>((set, get) => ({
       supabase.from('cart_items').upsert({
         user_id: currentUserId,
         product_id: item.product.id,
-        quantity: item.quantity,
-        selected_color: item.selectedColor,
-        selected_size: item.selectedSize,
+        quantity: Math.min(Math.max(item.quantity, 1), 20),
+        selected_color: item.selectedColor || '',
+        selected_size: item.selectedSize || '',
       }, {
         onConflict: 'user_id,product_id,selected_color,selected_size',
       }).then(({ error }) => {
@@ -470,7 +461,6 @@ export const useCartStore = create<CartStore>((set, get) => ({
   // Loads cart via server API route — bypasses client JWT timing issues on Vercel
   syncCartFromServer: async () => {
     try {
-      console.log('[syncCartFromServer] Starting sync')
       const res = await fetch('/api/cart', { credentials: 'include' })
       if (!res.ok) {
         console.error('[syncCartFromServer] Response not ok:', res.status)
@@ -480,7 +470,6 @@ export const useCartStore = create<CartStore>((set, get) => ({
       const serverItems: CartItem[] = data.items ?? []
       const userId: string | null = data.userId ?? null
 
-      console.log('[syncCartFromServer] Got', serverItems.length, 'items from server for user:', userId)
 
       if (userId) {
         set({ userId })
@@ -495,7 +484,6 @@ export const useCartStore = create<CartStore>((set, get) => ({
           }
         })
         const merged = Array.from(mergedMap.values())
-        console.log('[syncCartFromServer] Merged to', merged.length, 'items')
         set({ items: merged })
         saveLocalCart(merged, userId)
       }

@@ -1,13 +1,17 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const MAX_QTY = 20
+// '' en vez de NULL: con NULL el UNIQUE no funciona (duplica filas y el borrado no encuentra el ítem)
+const variant = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 40) : '')
+
 export async function GET() {
   try {
     const supabase = await createClient()
     const { data: { user }, error: userError } = await supabase.auth.getUser()
 
     if (userError) {
-      console.error('[cart GET] getUser error:', userError.message)
       return NextResponse.json({ items: [], userId: null })
     }
 
@@ -26,7 +30,7 @@ export async function GET() {
       .eq('user_id', user.id)
 
     if (error) {
-      console.warn('[cart GET] Query error:', error.message)
+      console.warn('[cart GET] Query error', { code: error.code })
       return NextResponse.json({ items: [], userId: user.id })
     }
 
@@ -69,11 +73,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const body = await req.json()
-    const { product_id, quantity, selected_color, selected_size } = body
+    const body = await req.json().catch(() => null)
+    const { product_id, quantity, selected_color, selected_size } = body ?? {}
 
-    if (!product_id || !quantity) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    if (typeof product_id !== 'string' || !UUID.test(product_id)) {
+      return NextResponse.json({ error: 'Producto inválido' }, { status: 400 })
+    }
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QTY) {
+      return NextResponse.json({ error: `Cantidad inválida (1-${MAX_QTY})` }, { status: 400 })
     }
 
     const { error } = await supabase
@@ -82,15 +89,15 @@ export async function POST(req: Request) {
         user_id: user.id,
         product_id,
         quantity,
-        selected_color: selected_color || null,
-        selected_size: selected_size || null,
+        selected_color: variant(selected_color),
+        selected_size: variant(selected_size),
       }, {
         onConflict: 'user_id,product_id,selected_color,selected_size',
       })
 
     if (error) {
-      console.error('[cart POST] Error:', error.message)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      console.error('[cart POST] Error', { code: error.code })
+      return NextResponse.json({ error: 'No se pudo actualizar el carrito' }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })
@@ -109,8 +116,8 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const body = await req.json()
-    const { product_id, selected_color, selected_size, clear_all } = body
+    const body = await req.json().catch(() => null)
+    const { product_id, selected_color, selected_size, clear_all } = body ?? {}
 
     // Handle clear_all case (for logout)
     if (clear_all) {
@@ -120,16 +127,16 @@ export async function DELETE(req: Request) {
         .eq('user_id', user.id)
 
       if (error) {
-        console.error('[cart DELETE clear_all] Error:', error.message)
-        return NextResponse.json({ error: error.message }, { status: 500 })
+        console.error('[cart DELETE clear_all] Error', { code: error.code })
+        return NextResponse.json({ error: 'No se pudo vaciar el carrito' }, { status: 500 })
       }
 
       return NextResponse.json({ success: true })
     }
 
     // Handle individual item deletion
-    if (!product_id) {
-      return NextResponse.json({ error: 'Missing product_id' }, { status: 400 })
+    if (typeof product_id !== 'string' || !UUID.test(product_id)) {
+      return NextResponse.json({ error: 'Producto inválido' }, { status: 400 })
     }
 
     const { error } = await supabase
@@ -137,12 +144,12 @@ export async function DELETE(req: Request) {
       .delete()
       .eq('user_id', user.id)
       .eq('product_id', product_id)
-      .eq('selected_color', selected_color || null)
-      .eq('selected_size', selected_size || null)
+      .eq('selected_color', variant(selected_color))
+      .eq('selected_size', variant(selected_size))
 
     if (error) {
-      console.error('[cart DELETE] Error:', error.message)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      console.error('[cart DELETE] Error', { code: error.code })
+      return NextResponse.json({ error: 'No se pudo eliminar el producto' }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })

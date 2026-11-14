@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getTransaction } from '@/lib/wompi'
 import { applyWompiTransaction } from '@/lib/payments'
+import { limitByIp } from '@/lib/rate-limit'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -14,6 +15,10 @@ export async function GET(
   { params }: { params: Promise<{ reference: string }> }
 ) {
   try {
+    // La confirmación hace polling cada 3 s durante ~2 min (≈40 peticiones)
+    const limited = await limitByIp(request, 'orders:reference:ip', 120, 600)
+    if (limited) return limited
+
     const { reference } = await params
     // Solo UUID (no enumerable). La búsqueda por order_number exige email en /api/orders/track
     if (!UUID.test(reference)) {

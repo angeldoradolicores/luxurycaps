@@ -2,14 +2,16 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendConfirmationEmail } from '@/lib/mail'
+import { checkRateLimit, getClientIp, tooManyRequests } from '@/lib/rate-limit'
 
 async function getSiteUrl(request: Request) {
   if (process.env.NEXT_PUBLIC_SITE_URL) {
     return process.env.NEXT_PUBLIC_SITE_URL
   }
 
+  // Sin NEXT_PUBLIC_SITE_URL solo se acepta localhost: no se confía en la cabecera Host
   const host = request.headers.get('host')
-  if (!host) return 'http://localhost:3000'
+  if (!host || !/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host)) return 'http://localhost:3000'
 
   const protocol = host.includes('localhost') || host.includes('127.0.0.1') ? 'http' : 'https'
   return `${protocol}://${host}`
@@ -17,6 +19,10 @@ async function getSiteUrl(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    if (!(await checkRateLimit('register:ip', getClientIp(request), 5, 3600))) {
+      return tooManyRequests(3600, 'Demasiados registros desde esta conexión. Intenta más tarde.')
+    }
+
     const body = await request.json()
     let email = (body.email || '').trim()
     const password = body.password
@@ -29,8 +35,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Email y contraseña son requeridos.' }, { status: 400 })
     }
 
-    if (!emailRegex.test(email)) {
+    if (!emailRegex.test(email) || email.length > 160) {
       return NextResponse.json({ error: 'Email inválido.' }, { status: 400 })
+    }
+
+    if (typeof password !== 'string' || password.length < 8 || password.length > 72) {
+      return NextResponse.json({ error: 'La contraseña debe tener entre 8 y 72 caracteres.' }, { status: 400 })
+    }
+
+    if (typeof fullName !== 'string' || fullName.length > 120) {
+      return NextResponse.json({ error: 'Nombre inválido.' }, { status: 400 })
     }
 
     // Optional: quick MX lookup to reduce bounces

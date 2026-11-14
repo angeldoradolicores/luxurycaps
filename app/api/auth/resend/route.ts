@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendConfirmationEmail } from '@/lib/mail'
+import { checkRateLimit, getClientIp, tooManyRequests } from '@/lib/rate-limit'
 
 async function getSiteUrl(request: Request) {
+  // URL fija: la cabecera Host la controla el cliente y permitiría robar el enlace de confirmación
+  if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL
   const host = request.headers.get('host')
-  if (!host) return process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
-  const protocol = host.includes('localhost') || host.includes('127.0.0.1') ? 'http' : 'https'
-  return `${protocol}://${host}`
+  if (host && /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host)) return `http://${host}`
+  return 'http://localhost:3000'
 }
 
 export async function POST(request: Request) {
@@ -16,8 +18,16 @@ export async function POST(request: Request) {
     const fullName = body.fullName || ''
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!email || !emailRegex.test(email)) {
+    if (!email || !emailRegex.test(email) || email.length > 160) {
       return NextResponse.json({ error: 'Email inválido.' }, { status: 400 })
+    }
+
+    // Evita usar el servidor para enviar correos masivos
+    if (
+      !(await checkRateLimit('resend:ip', getClientIp(request), 5, 3600)) ||
+      !(await checkRateLimit('resend:email', email, 3, 3600))
+    ) {
+      return tooManyRequests(3600, 'Ya enviamos varios correos. Revisa tu bandeja (y spam) o intenta más tarde.')
     }
 
     const siteUrl = await getSiteUrl(request)

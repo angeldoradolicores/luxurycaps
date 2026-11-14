@@ -1,5 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
+import { safeRedirectPath } from '@/lib/safe-redirect'
+import { checkRateLimit, getClientIp, tooManyRequests } from '@/lib/rate-limit'
 
 export async function POST(request: Request) {
   try {
@@ -14,17 +16,30 @@ export async function POST(request: Request) {
       const body = await request.json()
       email = body.email as string
       password = body.password as string
-      redirectTo = body.redirectTo || '/'
+      redirectTo = safeRedirectPath(body.redirectTo)
     } else {
       const formData = await request.formData()
       email = formData.get('email')?.toString() ?? null
       password = formData.get('password')?.toString() ?? null
-      redirectTo = formData.get('redirectTo')?.toString() || '/'
+      redirectTo = safeRedirectPath(formData.get('redirectTo')?.toString())
+    }
+
+    // Anti fuerza bruta: por IP y por cuenta
+    const ip = getClientIp(request)
+    const normalizedEmail = (email || '').trim().toLowerCase()
+    const allowed =
+      (await checkRateLimit('login:ip', ip, 20, 900)) &&
+      (!normalizedEmail || (await checkRateLimit('login:email', normalizedEmail, 8, 900)))
+    if (!allowed) {
+      const msg = 'Demasiados intentos de inicio de sesión. Espera 15 minutos e intenta de nuevo.'
+      if (isJson) return tooManyRequests(900, msg)
+      const loginUrl = new URL('/auth/login', request.url)
+      loginUrl.searchParams.set('error', msg)
+      return NextResponse.redirect(loginUrl)
     }
 
     if (!email || !password) {
       const errorMsg = 'Email y contraseña son requeridos'
-      console.error('[login POST] Validation error:', errorMsg)
       
       if (isJson) {
         return NextResponse.json({ error: errorMsg }, { status: 400 })

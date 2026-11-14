@@ -9,6 +9,9 @@ export async function GET(
 ) {
   try {
     const { slug } = await params
+    if (!slug || slug.length > 200) {
+      return NextResponse.json({ error: 'Producto no encontrado' }, { status: 404 })
+    }
     const supabase = await createClient()
 
     let product = null
@@ -26,8 +29,8 @@ export async function GET(
         .maybeSingle()
 
       if (error) {
-        console.error('[products/slug] ID fetch error:', error)
-        return NextResponse.json({ error: error.message }, { status: 500 })
+        console.error('[products/slug] ID fetch error', { code: error.code })
+        return NextResponse.json({ error: 'Error al cargar el producto' }, { status: 500 })
       }
       product = data
     }
@@ -45,8 +48,8 @@ export async function GET(
         .maybeSingle()
 
       if (error) {
-        console.error('[products/slug] Slug fetch error:', error)
-        return NextResponse.json({ error: error.message }, { status: 500 })
+        console.error('[products/slug] Slug fetch error', { code: error.code })
+        return NextResponse.json({ error: 'Error al cargar el producto' }, { status: 500 })
       }
       product = data
     }

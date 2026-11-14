@@ -4,6 +4,10 @@ import { NextResponse } from 'next/server'
 import { generateWompiSignature } from '@/lib/wompi'
 import crypto from 'crypto'
 import { z } from 'zod'
+import { checkRateLimit, limitByIp, tooManyRequests } from '@/lib/rate-limit'
+
+// Máximo de pedidos sin pagar simultáneos por usuario (evita acaparar inventario)
+const MAX_PENDING_ORDERS_PER_USER = 3
 
 const SHIPPING_RATES = { interrapidisimo: 17000, recoger: 0 } as const
 
@@ -36,6 +40,9 @@ const OrderSchema = z.object({
 
 export async function POST(request: Request) {
   try {
+    const limited = await limitByIp(request, 'orders:create:ip', 10, 600)
+    if (limited) return limited
+
     const parsed = OrderSchema.safeParse(await request.json().catch(() => null))
     if (!parsed.success) {
       return NextResponse.json({ error: 'Datos del pedido inválidos' }, { status: 400 })
@@ -61,6 +68,27 @@ export async function POST(request: Request) {
     const {
       data: { user },
     } = await supabase.auth.getUser()
+
+    // Comprar exige sesión (el checkout ya lo exige en la interfaz)
+    if (!user) {
+      return NextResponse.json({ error: 'Debes iniciar sesión para completar la compra' }, { status: 401 })
+    }
+
+    if (!(await checkRateLimit('orders:create:user', user.id, 5, 600))) {
+      return tooManyRequests(600)
+    }
+
+    const { count: pendingCount } = await db
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('status', 'pending')
+    if ((pendingCount ?? 0) >= MAX_PENDING_ORDERS_PER_USER) {
+      return NextResponse.json(
+        { error: 'Tienes pedidos pendientes de pago. Complétalos o espera unos minutos antes de crear otro.' },
+        { status: 429 }
+      )
+    }
 
     // 1) Precios SIEMPRE desde la base de datos
     const ids = [...new Set(items.map((i) => i.productId))]
@@ -134,8 +162,8 @@ export async function POST(request: Request) {
       .from('orders')
       .insert({
         order_number: orderNumber,
-        user_id: user?.id ?? null,
-        guest_email: user ? null : shippingInfo.email,
+        user_id: user.id,
+        guest_email: null,
         status: 'pending',
         subtotal,
         shipping_cost: shippingCost,
