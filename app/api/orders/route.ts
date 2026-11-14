@@ -2,55 +2,147 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import { generateWompiSignature } from '@/lib/wompi'
+import crypto from 'crypto'
+import { z } from 'zod'
+
+const SHIPPING_RATES = { interrapidisimo: 17000, recoger: 0 } as const
+
+const OrderSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        productId: z.string().uuid(),
+        quantity: z.number().int().min(1).max(20),
+        color: z.string().max(40).optional().nullable(),
+        size: z.string().max(10).optional().nullable(),
+      })
+    )
+    .min(1)
+    .max(30),
+  shippingMethod: z.enum(['interrapidisimo', 'recoger']),
+  promoCode: z.string().trim().max(40).optional().nullable(),
+  paymentMethod: z.string().max(20).optional(),
+  shippingInfo: z.object({
+    name: z.string().trim().min(2).max(120),
+    phone: z.string().trim().regex(/^[0-9+ ]{7,15}$/),
+    email: z.string().trim().toLowerCase().email().max(160),
+    address: z.string().trim().min(5).max(250),
+    city: z.string().trim().min(1).max(80),
+    state: z.string().trim().min(1).max(80),
+    postalCode: z.string().trim().max(10).optional(),
+    notes: z.string().max(500).optional(),
+  }),
+})
 
 export async function POST(request: Request) {
   try {
-    // Validate environment variables
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.error('[orders] Missing Supabase environment variables')
-      return NextResponse.json({ error: 'Configuración del servidor incompleta' }, { status: 500 })
+    const parsed = OrderSchema.safeParse(await request.json().catch(() => null))
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Datos del pedido inválidos' }, { status: 400 })
     }
+    const { items, shippingInfo, shippingMethod, promoCode } = parsed.data
 
-    const body = await request.json()
-    const {
-      items,
-      shippingInfo,
-      shippingCost,
-      paymentMethod,
-    } = body
-
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return NextResponse.json({ error: 'No hay productos en la orden' }, { status: 400 })
+    const wompiPublicKey = process.env.NEXT_PUBLIC_WOMPI_PUBLIC_KEY
+    const siteUrl =
+      process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '')
+    if (
+      !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+      !process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      !wompiPublicKey ||
+      !process.env.WOMPI_INTEGRITY_KEY ||
+      !siteUrl
+    ) {
+      console.error('[orders] Configuración de pagos incompleta')
+      return NextResponse.json({ error: 'Los pagos no están disponibles temporalmente' }, { status: 503 })
     }
 
     const supabase = await createClient()
-    const supabaseAdmin = createAdminClient()
+    const db = createAdminClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
 
-    // Get current user if logged in
-    const { data: { user } } = await supabase.auth.getUser()
+    // 1) Precios SIEMPRE desde la base de datos
+    const ids = [...new Set(items.map((i) => i.productId))]
+    const { data: products, error: pErr } = await db
+      .from('products')
+      .select('id, name, price, images')
+      .in('id', ids)
+    if (pErr) {
+      console.error('[orders] products lookup', { code: pErr.code })
+      return NextResponse.json({ error: 'No pudimos verificar los productos, intenta de nuevo' }, { status: 503 })
+    }
+    const byId = new Map((products ?? []).map((p: any) => [p.id, p]))
+    if (byId.size !== ids.length) {
+      return NextResponse.json({ error: 'Algún producto ya no está disponible' }, { status: 400 })
+    }
 
-    // Calculate totals
-    const subtotal = items.reduce((acc: number, item: { price: number; quantity: number }) => 
-      acc + item.price * item.quantity, 0)
+    const lines = items.map((i) => {
+      const p: any = byId.get(i.productId)
+      return {
+        product_id: p.id as string,
+        product_name: p.name as string,
+        product_image: (p.images?.[0] as string) ?? '',
+        price: Number(p.price),
+        quantity: i.quantity,
+        color: i.color ?? '',
+        size: i.size ?? '',
+      }
+    })
+    const subtotal = lines.reduce((s, l) => s + l.price * l.quantity, 0)
+    const shippingCost = SHIPPING_RATES[shippingMethod]
 
-    const total = subtotal + (shippingCost || 0)
+    // 2) Cupón validado en servidor
+    let discount = 0
+    let appliedCode: string | null = null
+    if (promoCode) {
+      const code = promoCode.toUpperCase()
+      const { data: promo } = await db
+        .from('promotions')
+        .select('code, discount_type, discount_value, min_purchase, max_uses, used_count, start_date, end_date')
+        .eq('code', code)
+        .eq('active', true)
+        .maybeSingle()
+      const now = Date.now()
+      const valid =
+        !!promo &&
+        (!promo.start_date || new Date(promo.start_date).getTime() <= now) &&
+        (!promo.end_date || new Date(promo.end_date).getTime() >= now) &&
+        (!promo.max_uses || (promo.used_count ?? 0) < promo.max_uses) &&
+        (!promo.min_purchase || subtotal >= promo.min_purchase)
+      if (!valid) {
+        return NextResponse.json({ error: 'Código de descuento no válido' }, { status: 400 })
+      }
+      discount =
+        promo!.discount_type === 'percentage'
+          ? Math.round((subtotal * promo!.discount_value) / 100)
+          : promo!.discount_value
+      discount = Math.min(Math.max(discount, 0), subtotal)
+      appliedCode = promo!.code
+    }
 
-    // Generate order number
+    const total = subtotal + shippingCost - discount
+    if (total <= 0) {
+      return NextResponse.json({ error: 'Total inválido' }, { status: 400 })
+    }
+
+    // 3) Crear orden + ítems
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-    const randomStr = Math.floor(Math.random() * 10000).toString().padStart(4, '0')
-    const orderNumber = `LH-${dateStr}-${randomStr}`
+    const orderNumber = `LH-${dateStr}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`
 
-    // Create order in database
-    const { data: order, error: orderError } = await supabaseAdmin
+    const { data: order, error: orderError } = await db
       .from('orders')
       .insert({
         order_number: orderNumber,
-        user_id: user?.id || null,
+        user_id: user?.id ?? null,
+        guest_email: user ? null : shippingInfo.email,
         status: 'pending',
         subtotal,
-        shipping_cost: shippingCost || 0,
+        shipping_cost: shippingCost,
+        discount,
+        promo_code: appliedCode,
         total,
-        shipping_method: body.shippingMethod || 'standard',
+        shipping_method: shippingMethod,
         shipping_address: {
           name: shippingInfo.name,
           phone: shippingInfo.phone,
@@ -59,102 +151,69 @@ export async function POST(request: Request) {
           city: shippingInfo.city,
           state: shippingInfo.state,
           postal_code: shippingInfo.postalCode || '',
-          country: 'Colombia'
+          country: 'Colombia',
         },
-        payment_method: paymentMethod || 'wompi',
+        payment_method: 'wompi',
         notes: shippingInfo.notes || '',
       })
-      .select()
+      .select('id')
       .single()
 
-    if (orderError) {
-      console.error('[orders] Order creation error:', JSON.stringify(orderError))
-      return NextResponse.json({ error: 'Error al crear la orden: ' + orderError.message }, { status: 500 })
+    if (orderError || !order) {
+      console.error('[orders] insert order', { code: orderError?.code, msg: orderError?.message })
+      return NextResponse.json({ error: 'No pudimos crear tu pedido, intenta de nuevo' }, { status: 500 })
     }
 
-    // Create order items (non-fatal if table doesn't exist yet)
-    const orderItems = items.map((item: {
-      productId: string
-      productName: string
-      productImage: string
-      price: number
-      quantity: number
-      color?: string
-      size?: string
-    }) => ({
-      order_id: order.id,
-      product_id: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.productId) ? item.productId : null,
-      product_name: item.productName,
-      product_image: item.productImage || '',
-      price: item.price,
-      quantity: item.quantity,
-      color: item.color || '',
-      size: item.size || '',
-    }))
-
-    const { error: itemsError } = await supabaseAdmin
+    const { error: itemsError } = await db
       .from('order_items')
-      .insert(orderItems)
-
+      .insert(lines.map((l) => ({ ...l, order_id: order.id })))
     if (itemsError) {
-      // Log but don't fail — order is already created
-      console.warn('[orders] Order items insert warning (table may not exist):', itemsError.message)
+      await db.from('orders').delete().eq('id', order.id)
+      console.error('[orders] insert items', { code: itemsError.code })
+      return NextResponse.json({ error: 'No pudimos crear tu pedido, intenta de nuevo' }, { status: 500 })
     }
 
-    // Update product stock
-    for (const item of items) {
-      try {
-        await supabaseAdmin.rpc('decrement_stock', { 
-          product_id: item.productId, 
-          quantity: item.quantity 
-        })
-      } catch {
-        // If RPC doesn't exist, do it manually
-        await supabaseAdmin
-          .from('products')
-          .select('stock')
-          .eq('id', item.productId)
-          .single()
-          .then(async ({ data }) => {
-            if (data) {
-              await supabaseAdmin
-                .from('products')
-                .update({ stock: Math.max(0, data.stock - item.quantity) })
-                .eq('id', item.productId)
-            }
-          })
-      }
-    }
-
-    // Generate Wompi checkout URL
-    const wompiPublicKey = process.env.NEXT_PUBLIC_WOMPI_PUBLIC_KEY || 'pub_test_XXXXXXXXXXXXXXXXXX'
-    const amountInCents = Math.round(total * 100)
-    const reference = order.id
-    const requestUrl = new URL(request.url)
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : `${requestUrl.protocol}//${requestUrl.host}`)
-    const redirectUrl = encodeURIComponent(`${siteUrl}/checkout/confirmacion?ref=${order.id}`)
-
-    // Verify integrity key is available
-    if (!process.env.WOMPI_INTEGRITY_KEY) {
-      console.error('[orders] WOMPI_INTEGRITY_KEY is not set — signature will be empty and Wompi will reject the request')
-    } else {
-      console.log('[orders] WOMPI_INTEGRITY_KEY is present, length:', process.env.WOMPI_INTEGRITY_KEY.length)
-    }
-
-    const signature = generateWompiSignature(reference, amountInCents, 'COP')
-
-    const checkoutUrl = `https://checkout.wompi.co/p/?public-key=${wompiPublicKey}&currency=COP&amount-in-cents=${amountInCents}&reference=${reference}&signature:integrity=${signature}&redirect-url=${redirectUrl}&customer-data:email=${encodeURIComponent(shippingInfo.email || '')}&customer-data:full-name=${encodeURIComponent(shippingInfo.name || '')}&customer-data:phone-number=${encodeURIComponent(shippingInfo.phone || '')}`
-
-    console.log('[orders] Checkout URL generated, reference:', reference, '| signature length:', signature.length, '| amount:', amountInCents)
-
-    return NextResponse.json({
-      success: true,
-      orderId: order.id,
-      total,
-      checkoutUrl,
+    // 4) Reserva de stock atómica (una sola transacción en Postgres)
+    const { error: stockError } = await db.rpc('reserve_stock', {
+      p_items: lines.map((l) => ({ product_id: l.product_id, quantity: l.quantity })),
     })
+    if (stockError) {
+      await db.from('orders').update({ status: 'cancelled' }).eq('id', order.id)
+      const outOfStock = stockError.message?.includes('OUT_OF_STOCK')
+      if (!outOfStock) console.error('[orders] reserve_stock', { code: stockError.code, msg: stockError.message })
+      return NextResponse.json(
+        {
+          error: outOfStock
+            ? 'Uno de los productos se agotó. Revisa tu carrito.'
+            : 'No pudimos reservar el inventario, intenta de nuevo',
+        },
+        { status: outOfStock ? 409 : 503 }
+      )
+    }
+
+    // 5) Firma de integridad sobre el monto calculado en servidor
+    const amountInCents = Math.round(total * 100)
+    const signature = generateWompiSignature(order.id, amountInCents, 'COP')
+    const query: Record<string, string> = {
+      'public-key': wompiPublicKey,
+      currency: 'COP',
+      'amount-in-cents': String(amountInCents),
+      reference: order.id,
+      'signature:integrity': signature,
+      'redirect-url': `${siteUrl}/checkout/confirmacion?ref=${order.id}`,
+      'customer-data:email': shippingInfo.email,
+      'customer-data:full-name': shippingInfo.name,
+      'customer-data:phone-number': shippingInfo.phone.replace(/\D/g, ''),
+    }
+    const checkoutUrl =
+      'https://checkout.wompi.co/p/?' +
+      Object.entries(query)
+        .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+        .join('&')
+
+    return NextResponse.json({ success: true, orderId: order.id, total, checkoutUrl })
   } catch (error) {
-    console.error('[v0] Order API error:', error)
+    console.error('[orders] POST error', { msg: (error as Error).message })
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })
   }
 }
@@ -218,7 +277,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(orders || [])
   } catch (error) {
-    console.error('[v0] Orders GET error:', error)
+    console.error('[orders] GET error', { msg: (error as Error).message })
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })
   }
 }

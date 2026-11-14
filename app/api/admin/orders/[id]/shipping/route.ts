@@ -1,12 +1,28 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import { sendOrderStatusEmail } from '@/lib/mail'
+import { requireAdmin, ADMIN_ASSIGNABLE_STATUSES } from '@/lib/supabase/require-admin'
+
+// Transiciones válidas para un admin. 'paid' solo lo asigna Wompi (lib/payments.ts)
+const TRANSITIONS: Record<string, string[]> = {
+  pending: ['cancelled'],
+  paid: ['processing', 'shipped', 'delivered', 'cancelled'],
+  processing: ['shipped', 'delivered', 'cancelled'],
+  shipped: ['delivered', 'cancelled'],
+  delivered: [],
+  cancelled: [],
+}
+// Si se cancela antes de despachar, el inventario reservado vuelve a estar disponible
+const RELEASE_STOCK_FROM = ['pending', 'paid', 'processing']
 
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const denied = await requireAdmin()
+    if (denied) return denied
+
     const { id: orderId } = await params
     const body = await request.json()
     const { status, tracking_number, carrier, tracking_photo_url, admin_note } = body
@@ -15,33 +31,75 @@ export async function PUT(
       return NextResponse.json({ error: 'ID de orden requerido' }, { status: 400 })
     }
 
+    for (const [field, value, max] of [
+      ['tracking_number', tracking_number, 100],
+      ['carrier', carrier, 100],
+      ['tracking_photo_url', tracking_photo_url, 1000],
+      ['admin_note', admin_note, 1000],
+    ] as const) {
+      if (value !== undefined && value !== null && (typeof value !== 'string' || value.length > max)) {
+        return NextResponse.json({ error: `Campo inválido: ${field}` }, { status: 400 })
+      }
+    }
+
     const supabaseAdmin = createAdminClient()
+
+    const { data: current, error: currentError } = await supabaseAdmin
+      .from('orders')
+      .select('status')
+      .eq('id', orderId)
+      .maybeSingle()
+    if (currentError || !current) {
+      return NextResponse.json({ error: 'Orden no encontrada' }, { status: 404 })
+    }
+
+    // Si el formulario reenvía el estado actual, no es un cambio de estado
+    const statusChange: string | null = status && status !== current.status ? status : null
+    if (statusChange) {
+      const allowedNext = TRANSITIONS[current.status] ?? []
+      if (!(ADMIN_ASSIGNABLE_STATUSES as readonly string[]).includes(statusChange) || !allowedNext.includes(statusChange)) {
+        return NextResponse.json(
+          { error: `No se puede pasar de "${current.status}" a "${statusChange}"` },
+          { status: 400 }
+        )
+      }
+    }
 
     // Build update object
     const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() }
-    if (status) updateData.status = status
+    if (statusChange) updateData.status = statusChange
     if (tracking_number !== undefined) updateData.tracking_number = tracking_number
     if (carrier !== undefined) updateData.carrier = carrier
     if (tracking_photo_url !== undefined) updateData.tracking_photo_url = tracking_photo_url
     if (admin_note !== undefined) updateData.admin_note = admin_note
-    if (status === 'shipped') updateData.shipped_at = new Date().toISOString()
-    if (status === 'delivered') updateData.delivered_at = new Date().toISOString()
+    if (statusChange === 'shipped') updateData.shipped_at = new Date().toISOString()
+    if (statusChange === 'delivered') updateData.delivered_at = new Date().toISOString()
 
-    // Update the order
+    // Update condicional al estado leído (evita carreras con el webhook)
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
       .update(updateData)
       .eq('id', orderId)
+      .eq('status', current.status)
       .select('*, items:order_items(*)')
-      .single()
+      .maybeSingle()
+
+    if (!orderError && !order) {
+      return NextResponse.json({ error: 'La orden cambió mientras la editabas, recarga e intenta de nuevo' }, { status: 409 })
+    }
+
+    if (statusChange === 'cancelled' && RELEASE_STOCK_FROM.includes(current.status)) {
+      const { error: relErr } = await supabaseAdmin.rpc('release_order_stock', { p_order_id: orderId })
+      if (relErr) console.error('[shipping] release_order_stock', { orderId, code: relErr.code })
+    }
 
     if (orderError || !order) {
-      console.error('[shipping] Order update error:', orderError)
+      console.error('[shipping] Order update error', { orderId, code: orderError?.code })
       return NextResponse.json({ error: 'Error al actualizar la orden' }, { status: 500 })
     }
 
     // Create notification for the customer if they have a user_id
-    if (order.user_id && status) {
+    if (order.user_id && statusChange) {
       const notificationMap: Record<string, { title: string; message: string; type: string }> = {
         processing: {
           title: '🛍️ Tu pedido está siendo preparado',
@@ -65,7 +123,7 @@ export async function PUT(
         },
       }
 
-      const notification = notificationMap[status]
+      const notification = notificationMap[statusChange]
       if (notification) {
         const { error: notifError } = await supabaseAdmin
           .from('notifications')
@@ -90,7 +148,7 @@ export async function PUT(
       sendOrderStatusEmail(
         customerEmail,
         order.order_number,
-        status,
+        order.status,
         {
           carrier: order.carrier,
           trackingNumber: order.tracking_number,
@@ -108,7 +166,7 @@ export async function PUT(
 
     return NextResponse.json({ success: true, order })
   } catch (error) {
-    console.error('[shipping] API error:', error)
+    console.error('[shipping] API error', { msg: (error as Error).message })
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })
   }
 }

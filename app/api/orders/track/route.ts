@@ -24,7 +24,7 @@ export async function GET(request: Request) {
       .maybeSingle()
 
     if (error) {
-      console.error('[track-api] Database error:', error)
+      console.error('[track-api] Database error', { code: error.code })
       return NextResponse.json({ error: 'Error al buscar el pedido' }, { status: 500 })
     }
 

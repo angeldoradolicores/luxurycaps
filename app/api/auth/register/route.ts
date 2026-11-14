@@ -38,7 +38,7 @@ export async function POST(request: Request) {
       const dns = await import('dns')
       const mx = await dns.promises.resolveMx(email.split('@')[1])
       if (!mx || mx.length === 0) {
-        console.warn('[register] No MX records for domain', email.split('@')[1])
+        console.warn('[register] No MX records for domain')
         return NextResponse.json({ error: 'Dominio de correo no válido.' }, { status: 400 })
       }
     } catch (e) {
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
     }
 
     if (!linkData?.properties?.action_link) {
-      console.error('[register] generateLink returned no action link', linkData)
+      console.error('[register] generateLink returned no action link')
       return NextResponse.json({ error: 'No se pudo generar el enlace de confirmación.' }, { status: 500 })
     }
 

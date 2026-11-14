@@ -69,7 +69,12 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'ID requerido' }, { status: 400 })
     }
 
-    const updates: Record<string, unknown> = {}
+    const allowed = ['processing', 'shipped', 'delivered', 'cancelled']
+    if (status && !allowed.includes(status)) {
+      return NextResponse.json({ error: 'Estado no permitido' }, { status: 400 })
+    }
+
+    const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
     if (status) updates.status = status
     if (notes !== undefined) updates.notes = notes
 
@@ -81,7 +86,8 @@ export async function PUT(request: Request) {
       .single()
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      console.error('[admin/orders] update', { code: error.code })
+      return NextResponse.json({ error: 'Error al actualizar la orden' }, { status: 500 })
     }
 
     return NextResponse.json(order)

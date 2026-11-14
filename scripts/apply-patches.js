@@ -1,8 +1,14 @@
 // Check if products table has the required columns, and fix order_items constraint
 const { createClient } = require('@supabase/supabase-js')
 
-const SUPABASE_URL = 'https://hazarlzuzgvxdketftao.supabase.co'
-const SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhhemFybHp1emd2eGRrZXRmdGFvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDM1NDYzOSwiZXhwIjoyMDk1OTMwNjM5fQ.GqjnTbH0oHu6-4DuSZCpcXKYh7Bz5-ZLRkA4uEGWiz8'
+// Credenciales SOLO desde variables de entorno (nunca hardcodeadas)
+// Uso: SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/apply-patches.js
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+if (!SUPABASE_URL || !SERVICE_KEY) {
+  console.error('Faltan SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY en el entorno')
+  process.exit(1)
+}
 
 const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false }

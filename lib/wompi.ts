@@ -51,7 +51,7 @@ export function generateWompiSignature(
 
 // Get acceptance token from Wompi
 export async function getAcceptanceToken(): Promise<string> {
-  const response = await fetch(`${WOMPI_API_URL}/merchants/${WOMPI_PUBLIC_KEY}`)
+  const response = await wompiFetch(`${WOMPI_API_URL}/merchants/${WOMPI_PUBLIC_KEY}`)
   const data = await response.json()
   return data.data.presigned_acceptance.acceptance_token
 }
@@ -64,7 +64,7 @@ export async function createCardToken(cardData: {
   exp_year: string
   card_holder: string
 }): Promise<string> {
-  const response = await fetch(`${WOMPI_API_URL}/tokens/cards`, {
+  const response = await wompiFetch(`${WOMPI_API_URL}/tokens/cards`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${WOMPI_PUBLIC_KEY}`,
@@ -111,7 +111,7 @@ export async function createTransaction(params: {
     body.redirect_url = params.redirectUrl
   }
 
-  const response = await fetch(`${WOMPI_API_URL}/transactions`, {
+  const response = await wompiFetch(`${WOMPI_API_URL}/transactions`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${WOMPI_PRIVATE_KEY}`,
@@ -122,7 +122,7 @@ export async function createTransaction(params: {
 
   if (!response.ok) {
     const error = await response.json()
-    console.error('[v0] Wompi transaction error:', error)
+    console.error('[wompi] Transaction error:', error?.error?.type || response.status)
     throw new Error(error.error?.messages?.[0] || 'Error al procesar el pago')
   }
 
@@ -130,34 +130,53 @@ export async function createTransaction(params: {
   return data.data
 }
 
-// Get transaction status
+// fetch con timeout y sin cache para todas las llamadas a Wompi
+function wompiFetch(url: string, init: RequestInit = {}, timeoutMs = 8000) {
+  return fetch(url, { ...init, cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) })
+}
+
+// Get transaction status (fuente de verdad: API de Wompi)
 export async function getTransaction(transactionId: string): Promise<WompiTransaction> {
-  const response = await fetch(`${WOMPI_API_URL}/transactions/${transactionId}`, {
-    headers: {
-      'Authorization': `Bearer ${WOMPI_PRIVATE_KEY}`,
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error('Error al obtener la transaccion')
+  if (!/^[\w-]{5,64}$/.test(transactionId)) {
+    throw new Error('ID de transacción inválido')
   }
-
+  const response = await wompiFetch(`${WOMPI_API_URL}/transactions/${encodeURIComponent(transactionId)}`, {
+    headers: { Authorization: `Bearer ${WOMPI_PRIVATE_KEY}` },
+  })
+  if (!response.ok) {
+    throw new Error(`Wompi respondió ${response.status}`)
+  }
   const data = await response.json()
   return data.data
 }
 
-// Verify webhook signature
-export function verifyWebhookSignature(
-  payload: string,
-  signature: string,
-  timestamp: string
-): boolean {
-  const concatenated = `${timestamp}${payload}${WOMPI_PRIVATE_KEY}`
-  const expectedSignature = crypto
-    .createHash('sha256')
-    .update(concatenated)
-    .digest('hex')
-  return signature === expectedSignature
+function getPath(obj: unknown, path: string): unknown {
+  return path.split('.').reduce<any>((o, k) => (o == null ? undefined : o[k]), obj)
+}
+
+/**
+ * Verifica el checksum oficial de eventos de Wompi:
+ * SHA256(valores de signature.properties (relativos a data) + timestamp + WOMPI_EVENTS_SECRET)
+ * Devuelve false si falta el secreto o la firma: nunca se procesa un evento sin verificar.
+ */
+export function verifyWompiEventChecksum(event: any): boolean {
+  const secret = process.env.WOMPI_EVENTS_SECRET || ''
+  if (!secret) {
+    console.error('[wompi] WOMPI_EVENTS_SECRET no está configurado')
+    return false
+  }
+  const props = event?.signature?.properties
+  const checksum = event?.signature?.checksum
+  if (!Array.isArray(props) || typeof checksum !== 'string' || event?.timestamp == null) return false
+  if (!/^[0-9a-fA-F]{64}$/.test(checksum)) return false
+
+  const concatenated =
+    props.map((p: string) => String(getPath(event.data, p) ?? '')).join('') +
+    String(event.timestamp) +
+    secret
+  const expected = crypto.createHash('sha256').update(concatenated).digest()
+  const received = Buffer.from(checksum, 'hex')
+  return received.length === expected.length && crypto.timingSafeEqual(received, expected)
 }
 
 // Generate order reference
@@ -169,7 +188,7 @@ export function generateOrderReference(): string {
 
 // Get PSE financial institutions
 export async function getPSEInstitutions(): Promise<{ financial_institution_code: string; financial_institution_name: string }[]> {
-  const response = await fetch(`${WOMPI_API_URL}/pse/financial_institutions`, {
+  const response = await wompiFetch(`${WOMPI_API_URL}/pse/financial_institutions`, {
     headers: {
       'Authorization': `Bearer ${WOMPI_PUBLIC_KEY}`,
     },

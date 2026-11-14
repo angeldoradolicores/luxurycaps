@@ -31,7 +31,8 @@ export async function POST(request: Request) {
     const { data: linkData, error: linkError } = await adminSupabase.auth.admin.generateLink({
       type: 'signup',
       email,
-      password: null,
+      // Supabase acepta null en runtime para reenviar el enlace a un usuario existente
+      password: null as unknown as string,
       options: {
         data: { full_name: fullName },
         redirectTo,
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
     }
 
     if (!linkData?.properties?.action_link) {
-      console.error('[resend] generateLink returned no action link', linkData)
+      console.error('[resend] generateLink returned no action link')
       return NextResponse.json({ error: 'No se pudo generar el enlace de confirmación.' }, { status: 500 })
     }
 

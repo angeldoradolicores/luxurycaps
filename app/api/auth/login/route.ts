@@ -87,15 +87,13 @@ export async function POST(request: Request) {
       }
     )
 
-    console.log('[login POST] Attempting sign in for:', email)
-
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
 
     if (error) {
-      console.error('[login POST] Sign in error:', error.message, error.code)
+      console.warn('[login POST] Sign in error', { code: error.code })
       
       if (isJson) {
         return NextResponse.json({ 
@@ -110,8 +108,6 @@ export async function POST(request: Request) {
       response = NextResponse.redirect(loginUrl)
       return response
     }
-
-    console.log('[login POST] Sign in successful for:', email)
 
     if (isJson) {
       return NextResponse.json({ success: true })

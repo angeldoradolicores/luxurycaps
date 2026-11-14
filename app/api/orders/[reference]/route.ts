@@ -1,7 +1,13 @@
-import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getTransaction } from '@/lib/wompi'
-import { sendOrderStatusEmail } from '@/lib/mail'
+import { applyWompiTransaction } from '@/lib/payments'
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Solo campos no sensibles: nada de dirección, teléfono ni email
+const PUBLIC_FIELDS =
+  'id, order_number, status, subtotal, shipping_cost, discount, total, shipping_method, created_at, wompi_transaction_id, items:order_items(product_name, product_image, price, quantity, color, size)'
 
 export async function GET(
   request: Request,
@@ -9,113 +15,51 @@ export async function GET(
 ) {
   try {
     const { reference } = await params
-    const { searchParams } = new URL(request.url)
-    const wompiIdParam = searchParams.get('wompi_id')?.trim()
-
-    const supabaseAdmin = createAdminClient()
-
-    // Get order by reference — try UUID first, then fall back to order_number
-    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reference)
-    
-    const query = supabaseAdmin
-      .from('orders')
-      .select(`*, items:order_items(*)`)
-    
-    const { data: order, error } = isUUID
-      ? await query.eq('id', reference).maybeSingle()
-      : await query.eq('order_number', reference).maybeSingle()
-
-    if (error || !order) {
-      console.error('[orders/reference] Not found:', reference, error?.message)
+    // Solo UUID (no enumerable). La búsqueda por order_number exige email en /api/orders/track
+    if (!UUID.test(reference)) {
       return NextResponse.json({ error: 'Orden no encontrada' }, { status: 404 })
     }
 
-    const wompiId = wompiIdParam || order.wompi_transaction_id
+    const db = createAdminClient()
+    const load = () => db.from('orders').select(PUBLIC_FIELDS).eq('id', reference).maybeSingle()
 
-    // If there's a Wompi transaction ID, check/update its status
-    if (wompiId) {
+    let { data: order } = await load()
+    if (!order) {
+      return NextResponse.json({ error: 'Orden no encontrada' }, { status: 404 })
+    }
+
+    let transactionStatus: string | undefined
+    let transactionMessage: string | undefined
+    const wompiIdParam = new URL(request.url).searchParams.get('wompi_id')?.trim()
+    const txId = wompiIdParam || order.wompi_transaction_id
+
+    // Verificación activa contra la API de Wompi (fallback si el webhook no ha llegado)
+    if (order.status === 'pending' && txId) {
       try {
-        const transaction = await getTransaction(wompiId)
-        let newStatus = order.status
-
-        if (transaction.status === 'APPROVED') {
-          newStatus = 'paid'
-        } else if (transaction.status === 'DECLINED' || transaction.status === 'ERROR' || transaction.status === 'VOIDED') {
-          newStatus = 'cancelled'
-        }
-
-        // Update database if status changed
-        if (newStatus !== order.status) {
-          const { error: updateError } = await supabaseAdmin
-            .from('orders')
-            .update({
-              status: newStatus,
-              wompi_transaction_id: wompiId,
-              payment_reference: transaction.payment_method?.extra?.external_identifier || null,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', order.id)
-
-          if (!updateError) {
-            order.status = newStatus
-            order.wompi_transaction_id = wompiId
-
-            console.log(`[orders/reference] Order ${order.order_number} status updated to ${newStatus} via Wompi check`)
-
-            // Create notification for customer
-            if (order.user_id) {
-              const title = newStatus === 'paid' ? '💰 Pago Confirmado' : '❌ Pago Cancelado/Rechazado'
-              const message = newStatus === 'paid'
-                ? `¡Tu pago para el pedido #${order.order_number} fue aprobado con éxito! Estamos preparando tu envío.`
-                : `El pago para tu pedido #${order.order_number} fue declinado o cancelado.`
-
-              await supabaseAdmin
-                .from('notifications')
-                .insert({
-                  user_id: order.user_id,
-                  order_id: order.id,
-                  title,
-                  message,
-                  type: 'order_update',
-                })
-            }
-
-            // Send email notification to customer
-            const customerEmail = order.shipping_address?.email || order.guest_email
-            if (customerEmail) {
-              sendOrderStatusEmail(
-                customerEmail,
-                order.order_number,
-                newStatus,
-                {
-                  adminNote: newStatus === 'paid' ? 'Pago aprobado por Wompi.' : 'Transacción de pago rechazada o cancelada en Wompi.',
-                },
-                {
-                  subtotal: order.subtotal,
-                  shipping_cost: order.shipping_cost,
-                  total: order.total,
-                  items: order.items,
-                }
-              ).catch((err) => console.error('[orders/reference-email] Async email error:', err))
-            }
-          } else {
-            console.error('[orders/reference] Order update error:', updateError)
+        const tx = await getTransaction(txId)
+        // La transacción debe pertenecer a ESTA orden; el monto lo valida applyWompiTransaction
+        if (tx.reference === order.id) {
+          transactionStatus = tx.status
+          transactionMessage = tx.status_message
+          const result = await applyWompiTransaction(tx)
+          if (result === 'updated') {
+            ;({ data: order } = await load())
           }
+        } else {
+          console.warn('[orders/reference] wompi_id no corresponde a la orden', { orderId: reference })
         }
-
-        return NextResponse.json({
-          ...order,
-          transactionStatus: transaction.status,
-          transactionMessage: transaction.status_message,
-        })
       } catch (err) {
-        console.error('[orders/reference] Failed to check transaction status:', err)
+        console.warn('[orders/reference] No se pudo verificar con Wompi', {
+          orderId: reference,
+          msg: (err as Error).message,
+        })
       }
     }
 
-    return NextResponse.json(order)
+    const { wompi_transaction_id: _omit, ...publicOrder } = order!
+    return NextResponse.json({ ...publicOrder, transactionStatus, transactionMessage })
   } catch (error) {
-    console.error('[orders/reference] Order status API error:', error)
+    console.error('[orders/reference] Error', { msg: (error as Error).message })
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })
   }
 }

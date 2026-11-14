@@ -57,16 +57,15 @@ export async function sendConfirmationEmail(to: string, actionLink: string, full
 
   const cleanedTo = to.trim().toLowerCase()
 
-  console.log('[mail] Preparing confirmation email', { to: cleanedTo, from: fromEmail })
-
   if (!transporter) {
     console.warn('[mail] Gmail transporter is not configured. Skipping real send.')
-    console.log('=== MOCK URBAN CROWN CONFIRMATION EMAIL ===')
-    console.log(`FROM: ${fromEmail}`)
-    console.log(`TO: ${cleanedTo}`)
-    console.log(`SUBJECT: ${subject}`)
-    console.log(`CONFIRMATION LINK: ${actionLink}`)
-    console.log('===========================================')
+    // El enlace de confirmación es una credencial: solo se imprime en desarrollo local
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('=== MOCK CONFIRMATION EMAIL (dev) ===')
+      console.log(`SUBJECT: ${subject}`)
+      console.log(`CONFIRMATION LINK: ${actionLink}`)
+      console.log('=====================================')
+    }
     return
   }
 
@@ -83,9 +82,9 @@ export async function sendConfirmationEmail(to: string, actionLink: string, full
       },
       replyTo: gmailUser || 'urbancrowncol4@gmail.com',
     })
-    console.log('[mail] Confirmation email sent to', cleanedTo)
+    console.log('[mail] Confirmation email sent')
   } catch (err) {
-    console.error('[mail] sendConfirmationEmail failed:', err)
+    console.error('[mail] sendConfirmationEmail failed', { msg: (err as Error)?.message })
   }
 }
 
@@ -303,18 +302,7 @@ export async function sendOrderStatusEmail(
 
   if (!transporter) {
     console.warn('[mail] Gmail transporter is not configured. Skipping real send.')
-    console.log('\n=================== MOCK EMAIL NOTIFICATION ===================')
-    console.log(`FROM: ${fromEmail}`)
-    console.log(`TO: ${to}`)
-    console.log(`SUBJECT: ${config.subject}`)
-    console.log(`ORDER STATUS UPDATE: ${status}`)
-    console.log('---------------------------------------------------------------')
-    console.log(`A mock email was triggered for status: ${status}.`)
-    console.log(`Order Number: ${orderNumber}`)
-    if (tracking?.trackingNumber) {
-      console.log(`Carrier: ${tracking.carrier}, Tracking Number: ${tracking.trackingNumber}`)
-    }
-    console.log('===============================================================\n')
+    console.log('[mail] MOCK order status email', { orderNumber, status })
     return
   }
 
@@ -326,6 +314,6 @@ export async function sendOrderStatusEmail(
       html,
     })
   } catch (err) {
-    console.error('[mail] Failed to send email via Gmail SMTP:', err);
+    console.error('[mail] Failed to send email via Gmail SMTP', { orderNumber, msg: (err as Error)?.message });
   }
 }
