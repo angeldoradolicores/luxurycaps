@@ -36,6 +36,18 @@ export async function applyWompiTransaction(tx: WompiTransaction): Promise<Apply
       got: tx.amount_in_cents,
       currency: tx.currency,
     })
+    // Un APPROVED con otro monto/moneda no paga el pedido, pero el admin debe verlo (posible reembolso)
+    if (tx.status === 'APPROVED') {
+      const { error: flagErr } = await db
+        .from('orders')
+        .update({
+          payment_issue: `Wompi aprobó la transacción ${tx.id} por ${tx.amount_in_cents} ${tx.currency} (centavos), pero el pedido es de ${expectedCents} COP. NO se marcó como pagado: revisa y reembolsa.`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', order.id)
+        .is('payment_issue', null)
+      if (flagErr) throw flagErr
+    }
     return 'mismatch'
   }
 
@@ -43,52 +55,31 @@ export async function applyWompiTransaction(tx: WompiTransaction): Promise<Apply
     tx.status === 'APPROVED' ? 'paid' : FAILED_STATUSES.has(tx.status) ? 'cancelled' : null
   if (!target) return 'noop' // PENDING: todavía no hay nada que hacer
 
-  const { data: updated, error: updErr } = await db
-    .from('orders')
-    .update({
-      status: target,
-      wompi_transaction_id: tx.id,
-      payment_reference: tx.payment_method?.extra?.external_identifier ?? null,
-      updated_at: new Date().toISOString(),
+  // Cambio de estado + stock/cupón en UNA transacción de BD (supabase-security-fix-5.sql).
+  // Si falla, se lanza el error → el webhook responde 500 → Wompi reintenta sin duplicar efectos.
+  if (target === 'paid') {
+    const { data: result, error: rpcErr } = await db.rpc('mark_order_paid', {
+      p_order_id: order.id,
+      p_tx_id: tx.id,
+      p_payment_ref: tx.payment_method?.extra?.external_identifier ?? null,
     })
-    .eq('id', order.id)
-    .eq('status', 'pending')
-    .select('id')
-    .maybeSingle()
-
-  if (updErr) throw updErr
-
-  if (!updated) {
-    // Evento duplicado o la orden ya no estaba pendiente
-    if (target === 'paid' && order.status === 'cancelled') {
-      console.error('[payments] APPROVED sobre orden cancelada/expirada — gestionar reembolso o reactivar', {
+    if (rpcErr) throw rpcErr
+    if (result === 'flagged') {
+      console.error('[payments] Pago aprobado sobre pedido cancelado o pago duplicado — marcado en payment_issue', {
         orderId: order.id,
         txId: tx.id,
       })
-      // Queda visible en el panel de admin (Pedidos) para reembolsar o despachar manualmente
-      const { error: flagErr } = await db
-        .from('orders')
-        .update({
-          payment_issue: `Wompi APROBÓ el pago (transacción ${tx.id}) pero el pedido estaba cancelado. Reembolsa o despacha manualmente.`,
-          wompi_transaction_id: tx.id,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', order.id)
-        .eq('status', 'cancelled')
-        .is('payment_issue', null)
-      if (flagErr) console.error('[payments] no se pudo marcar payment_issue', { orderId: order.id, code: flagErr.code })
     }
-    return 'noop'
-  }
-
-  if (target === 'cancelled') {
-    const { error: relErr } = await db.rpc('release_order_stock', { p_order_id: order.id })
-    if (relErr) console.error('[payments] release_order_stock falló', { orderId: order.id, code: relErr.code })
-  }
-
-  if (target === 'paid' && order.promo_code) {
-    const { error: promoErr } = await db.rpc('increment_promo_usage', { p_code: order.promo_code })
-    if (promoErr) console.error('[payments] increment_promo_usage falló', { orderId: order.id, code: promoErr.code })
+    if (result !== 'updated') return 'noop'
+  } else {
+    const { data: cancelled, error: rpcErr } = await db.rpc('cancel_order', {
+      p_order_id: order.id,
+      p_from: ['pending'],
+      p_release: true,
+      p_tx_id: tx.id,
+    })
+    if (rpcErr) throw rpcErr
+    if (cancelled !== true) return 'noop' // ya no estaba pendiente (evento duplicado o ya resuelto)
   }
 
   // Efectos secundarios después de responder (after() evita que se corten en serverless)

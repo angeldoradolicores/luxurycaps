@@ -11,7 +11,13 @@ export async function POST(request: Request) {
   }
 
   // Checksum obligatorio: sin firma válida no se procesa nada
-  if (!verifyWompiEventChecksum(event)) {
+  let valid = false
+  try {
+    valid = verifyWompiEventChecksum(event)
+  } catch {
+    valid = false
+  }
+  if (!valid) {
     console.warn('[wompi-webhook] Checksum inválido o ausente')
     return NextResponse.json({ error: 'Invalid checksum' }, { status: 401 })
   }

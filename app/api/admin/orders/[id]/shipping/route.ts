@@ -70,9 +70,26 @@ export async function PUT(
       }
     }
 
-    // Build update object
+    // Cancelar = cambio de estado + devolución de stock en UNA transacción (cancel_order).
+    // Si falla, no cambia nada y no se suma stock (antes cada reintento fallido inflaba el inventario).
+    if (statusChange === 'cancelled') {
+      const { data: cancelled, error: cancelErr } = await supabaseAdmin.rpc('cancel_order', {
+        p_order_id: orderId,
+        p_from: [current.status],
+        p_release: RELEASE_STOCK_FROM.includes(current.status),
+      })
+      if (cancelErr) {
+        console.error('[shipping] cancel_order', { orderId, code: cancelErr.code })
+        return NextResponse.json({ error: 'Error al cancelar la orden' }, { status: 500 })
+      }
+      if (cancelled !== true) {
+        return NextResponse.json({ error: 'La orden cambió mientras la editabas, recarga e intenta de nuevo' }, { status: 409 })
+      }
+    }
+
+    // Build update object (el estado "cancelled" ya quedó aplicado arriba)
     const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() }
-    if (statusChange) updateData.status = statusChange
+    if (statusChange && statusChange !== 'cancelled') updateData.status = statusChange
     if (tracking_number !== undefined) updateData.tracking_number = tracking_number
     if (carrier !== undefined) updateData.carrier = carrier
     if (tracking_photo_url !== undefined) updateData.tracking_photo_url = tracking_photo_url
@@ -80,27 +97,22 @@ export async function PUT(
     if (statusChange === 'shipped') updateData.shipped_at = new Date().toISOString()
     if (statusChange === 'delivered') updateData.delivered_at = new Date().toISOString()
 
-    // Update condicional al estado leído (evita carreras con el webhook)
+    // Update condicional al estado esperado (evita carreras con el webhook)
+    const expectedStatus = statusChange === 'cancelled' ? 'cancelled' : current.status
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
       .update(updateData)
       .eq('id', orderId)
-      .eq('status', current.status)
+      .eq('status', expectedStatus)
       .select('*, items:order_items(*)')
       .maybeSingle()
 
-    if (!orderError && !order) {
-      return NextResponse.json({ error: 'La orden cambió mientras la editabas, recarga e intenta de nuevo' }, { status: 409 })
-    }
-
-    if (statusChange === 'cancelled' && RELEASE_STOCK_FROM.includes(current.status)) {
-      const { error: relErr } = await supabaseAdmin.rpc('release_order_stock', { p_order_id: orderId })
-      if (relErr) console.error('[shipping] release_order_stock', { orderId, code: relErr.code })
-    }
-
-    if (orderError || !order) {
-      console.error('[shipping] Order update error', { orderId, code: orderError?.code })
+    if (orderError) {
+      console.error('[shipping] Order update error', { orderId, code: orderError.code })
       return NextResponse.json({ error: 'Error al actualizar la orden' }, { status: 500 })
+    }
+    if (!order) {
+      return NextResponse.json({ error: 'La orden cambió mientras la editabas, recarga e intenta de nuevo' }, { status: 409 })
     }
 
     // Create notification for the customer if they have a user_id

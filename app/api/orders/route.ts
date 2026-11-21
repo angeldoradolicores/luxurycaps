@@ -179,17 +179,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Total inválido' }, { status: 400 })
     }
 
-    // 3) Crear orden + ítems
+    // 3) Pedido + ítems + reserva de stock en UNA transacción (create_pending_order).
+    //    Los topes (3 pendientes por usuario, usos del cupón) se vuelven a verificar ahí bajo bloqueo,
+    //    así que peticiones simultáneas no los pueden saltar.
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
     const orderNumber = `LH-${dateStr}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`
 
-    const { data: order, error: orderError } = await db
-      .from('orders')
-      .insert({
+    const { data: orderId, error: createError } = await db.rpc('create_pending_order', {
+      p_order: {
         order_number: orderNumber,
         user_id: user.id,
-        guest_email: null,
-        status: 'pending',
         subtotal,
         shipping_cost: shippingCost,
         discount,
@@ -206,43 +205,30 @@ export async function POST(request: Request) {
           postal_code: shippingInfo.postalCode || '',
           country: 'Colombia',
         },
-        payment_method: 'wompi',
         notes: shippingInfo.notes || '',
-      })
-      .select('id')
-      .single()
-
-    if (orderError || !order) {
-      console.error('[orders] insert order', { code: orderError?.code, msg: orderError?.message })
-      return NextResponse.json({ error: 'No pudimos crear tu pedido, intenta de nuevo' }, { status: 500 })
-    }
-
-    const { error: itemsError } = await db
-      .from('order_items')
-      .insert(lines.map((l) => ({ ...l, order_id: order.id })))
-    if (itemsError) {
-      await db.from('orders').delete().eq('id', order.id)
-      console.error('[orders] insert items', { code: itemsError.code })
-      return NextResponse.json({ error: 'No pudimos crear tu pedido, intenta de nuevo' }, { status: 500 })
-    }
-
-    // 4) Reserva de stock atómica (una sola transacción en Postgres)
-    const { error: stockError } = await db.rpc('reserve_stock', {
-      p_items: lines.map((l) => ({ product_id: l.product_id, quantity: l.quantity })),
+      },
+      p_items: lines,
+      p_max_pending: MAX_PENDING_ORDERS_PER_USER,
     })
-    if (stockError) {
-      await db.from('orders').update({ status: 'cancelled' }).eq('id', order.id)
-      const outOfStock = stockError.message?.includes('OUT_OF_STOCK')
-      if (!outOfStock) console.error('[orders] reserve_stock', { code: stockError.code, msg: stockError.message })
-      return NextResponse.json(
-        {
-          error: outOfStock
-            ? 'Uno de los productos se agotó. Revisa tu carrito.'
-            : 'No pudimos reservar el inventario, intenta de nuevo',
-        },
-        { status: outOfStock ? 409 : 503 }
-      )
+
+    if (createError || typeof orderId !== 'string') {
+      const msg = createError?.message || ''
+      if (msg.includes('OUT_OF_STOCK')) {
+        return NextResponse.json({ error: 'Uno de los productos se agotó. Revisa tu carrito.' }, { status: 409 })
+      }
+      if (msg.includes('TOO_MANY_PENDING')) {
+        return NextResponse.json(
+          { error: 'Tienes pedidos pendientes de pago. Complétalos o espera unos minutos antes de crear otro.' },
+          { status: 429 }
+        )
+      }
+      if (msg.includes('PROMO_EXHAUSTED') || msg.includes('PROMO_INVALID')) {
+        return NextResponse.json({ error: 'Este código ya no está disponible' }, { status: 400 })
+      }
+      console.error('[orders] create_pending_order', { code: createError?.code, msg })
+      return NextResponse.json({ error: 'No pudimos crear tu pedido, intenta de nuevo' }, { status: 500 })
     }
+    const order = { id: orderId }
 
     // 5) Firma de integridad sobre el monto calculado en servidor
     // El enlace de pago caduca ANTES de que el pedido expire (2 h, expire_pending_orders):

@@ -169,7 +169,10 @@ export function verifyWompiEventChecksum(event: any): boolean {
   }
   const props = event?.signature?.properties
   const checksum = event?.signature?.checksum
-  if (!Array.isArray(props) || typeof checksum !== 'string' || event?.timestamp == null) return false
+  if (!Array.isArray(props) || props.length === 0 || props.length > 20) return false
+  // Propiedades deben ser rutas de texto ("transaction.id"); cualquier otra cosa es una firma inválida
+  if (!props.every((p: unknown) => typeof p === 'string' && /^[\w.]{1,100}$/.test(p))) return false
+  if (typeof checksum !== 'string' || event?.timestamp == null) return false
   if (!/^[0-9a-fA-F]{64}$/.test(checksum)) return false
 
   const concatenated =
