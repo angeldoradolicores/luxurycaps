@@ -1,98 +1,36 @@
-import { createClient } from '@/lib/supabase/server'
+import { getAdmin } from '@/lib/supabase/require-admin'
 import { NextResponse } from 'next/server'
 
 export async function GET() {
   try {
-    const supabase = await createClient()
+    const { error: denied, supabase } = await getAdmin()
+    if (denied) return denied
 
-    // Check if user is admin
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('is_admin')
-      .eq('id', user.id)
-      .maybeSingle()
-
-    if (!profile?.is_admin) {
-      return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 })
-    }
-
-    const { data: orders, error } = await supabase
-      .from('orders')
-      .select(`
+    const columns = (extra: string) => `
         id, order_number, created_at, status, subtotal, shipping_cost, total,
         shipping_method, payment_method, shipping_address,
         tracking_number, carrier, tracking_photo_url, admin_note,
-        shipped_at, delivered_at, user_id,
+        shipped_at, delivered_at, user_id${extra},
         items:order_items(id, product_name, quantity, price, color, size, product_image)
-      `)
-      .order('created_at', { ascending: false })
+      `
+    const load = (extra: string) =>
+      supabase.from('orders').select(columns(extra)).order('created_at', { ascending: false })
+
+    let { data: orders, error } = await load(', payment_issue')
+    // 42703 = columna inexistente (supabase-security-fix-4.sql aún no aplicado)
+    if (error?.code === '42703') ({ data: orders, error } = await load(''))
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      console.error('[admin/orders] GET', { code: error.code })
+      return NextResponse.json({ error: 'No se pudieron cargar los pedidos' }, { status: 500 })
     }
 
     return NextResponse.json({ orders: orders || [] })
   } catch (error) {
-    console.error('[v0] Admin orders error:', error)
+    console.error('[admin/orders] GET error', { msg: (error as Error).message })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
-export async function PUT(request: Request) {
-  try {
-    const supabase = await createClient()
-
-    // Check if user is admin
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('is_admin')
-      .eq('id', user.id)
-      .maybeSingle()
-
-    if (!profile?.is_admin) {
-      return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 })
-    }
-
-    const { id, status, notes } = await request.json()
-
-    if (!id) {
-      return NextResponse.json({ error: 'ID requerido' }, { status: 400 })
-    }
-
-    const allowed = ['processing', 'shipped', 'delivered', 'cancelled']
-    if (status && !allowed.includes(status)) {
-      return NextResponse.json({ error: 'Estado no permitido' }, { status: 400 })
-    }
-
-    const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
-    if (status) updates.status = status
-    if (notes !== undefined) updates.notes = notes
-
-    const { data: order, error } = await supabase
-      .from('orders')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single()
-
-    if (error) {
-      console.error('[admin/orders] update', { code: error.code })
-      return NextResponse.json({ error: 'Error al actualizar la orden' }, { status: 500 })
-    }
-
-    return NextResponse.json(order)
-  } catch (error) {
-    console.error('[v0] Admin update order error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-  }
-}
+// El cambio de estado se hace SOLO en /api/admin/orders/[id]/shipping,
+// que aplica las transiciones permitidas y libera el stock al cancelar.

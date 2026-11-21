@@ -65,6 +65,18 @@ export async function applyWompiTransaction(tx: WompiTransaction): Promise<Apply
         orderId: order.id,
         txId: tx.id,
       })
+      // Queda visible en el panel de admin (Pedidos) para reembolsar o despachar manualmente
+      const { error: flagErr } = await db
+        .from('orders')
+        .update({
+          payment_issue: `Wompi APROBÓ el pago (transacción ${tx.id}) pero el pedido estaba cancelado. Reembolsa o despacha manualmente.`,
+          wompi_transaction_id: tx.id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', order.id)
+        .eq('status', 'cancelled')
+        .is('payment_issue', null)
+      if (flagErr) console.error('[payments] no se pudo marcar payment_issue', { orderId: order.id, code: flagErr.code })
     }
     return 'noop'
   }

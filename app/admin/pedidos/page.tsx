@@ -42,6 +42,7 @@ interface Order {
   carrier?: string
   tracking_photo_url?: string
   admin_note?: string
+  payment_issue?: string | null
   shipped_at?: string
   delivered_at?: string
   shipping_address: {
@@ -276,6 +277,9 @@ export default function PedidosPage() {
                       {order.tracking_number && (
                         <p className="text-xs text-purple-400 mt-0.5">📦 {order.tracking_number}</p>
                       )}
+                      {order.payment_issue && (
+                        <p className="text-xs font-semibold text-red-400 mt-0.5">⚠️ Pago aprobado sobre pedido cancelado</p>
+                      )}
                     </td>
                     <td className="p-4 hidden md:table-cell">
                       <p className="font-medium text-sm">{order.shipping_address?.name}</p>
@@ -333,6 +337,12 @@ export default function PedidosPage() {
           </DialogHeader>
           {selectedOrder && (
             <div className="space-y-5">
+              {selectedOrder.payment_issue && (
+                <div className="p-4 rounded-xl border border-red-500/40 bg-red-500/10 text-sm text-red-300">
+                  <p className="font-semibold mb-1">⚠️ Revisión de pago requerida</p>
+                  <p>{selectedOrder.payment_issue}</p>
+                </div>
+              )}
               {/* Status */}
               <div className="flex items-center justify-between p-4 rounded-xl bg-secondary/30">
                 {(() => { const st = statusConfig[selectedOrder.status as keyof typeof statusConfig] || statusConfig.pending; return (

@@ -29,47 +29,49 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // Refresh the session — this keeps the user logged in across navigations
-  const { data: { session } } = await supabase.auth.getSession()
-  const user = session?.user ?? null
+  const path = request.nextUrl.pathname
+  const needsVerifiedUser = path.startsWith('/admin') || path.startsWith('/perfil')
+
+  // En /admin y /perfil se valida el JWT con el servidor de Auth (getUser);
+  // getSession() sólo lee la cookie y no comprueba la firma.
+  const user = needsVerifiedUser
+    ? (await supabase.auth.getUser()).data.user
+    : (await supabase.auth.getSession()).data.session?.user ?? null
 
   // Protect /admin routes
-  if (request.nextUrl.pathname.startsWith('/admin')) {
+  if (path.startsWith('/admin')) {
     if (!user) {
       const login = request.nextUrl.clone()
       login.pathname = '/auth/login'
-      login.searchParams.set('redirect', request.nextUrl.pathname)
+      login.search = ''
+      login.searchParams.set('redirect', path)
       return NextResponse.redirect(login)
     }
 
-    // Add a small delay to ensure DB is updated with admin status
-    // This helps with timing issues on Vercel
     const { data: profile, error } = await supabase
       .from('profiles')
       .select('is_admin')
       .eq('id', user.id)
       .maybeSingle()
 
-    // If profile not found (new user), allow entry - will be caught by page level checks
-    if (error && error.code !== 'PGRST116') {
-      console.error('[middleware] Profile lookup error:', error)
-    }
+    if (error) console.error('[middleware] profile lookup', { code: error.code })
 
-    if (profile && !profile.is_admin) {
+    // Sin perfil, error o no-admin => fuera (fail-closed)
+    if (profile?.is_admin !== true) {
       const home = request.nextUrl.clone()
       home.pathname = '/'
+      home.search = ''
       home.searchParams.set('unauthorized', '1')
       return NextResponse.redirect(home)
     }
-    
-    // If profile is null, silently allow - page will handle permission check
   }
 
   // Protect /perfil routes
-  if (request.nextUrl.pathname.startsWith('/perfil') && !user) {
+  if (path.startsWith('/perfil') && !user) {
     const login = request.nextUrl.clone()
     login.pathname = '/auth/login'
-    login.searchParams.set('redirect', request.nextUrl.pathname)
+    login.search = ''
+    login.searchParams.set('redirect', path)
     return NextResponse.redirect(login)
   }
 

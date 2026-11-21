@@ -40,12 +40,14 @@ export interface WompiTransaction {
 }
 
 // Generate signature for integrity verification
+// Docs Wompi: <Referencia><Monto><Moneda>[<FechaExpiracion>]<SecretoIntegridad>
 export function generateWompiSignature(
   reference: string,
   amountInCents: number,
-  currency: string = 'COP'
+  currency: string = 'COP',
+  expirationTime?: string
 ): string {
-  const concatenated = `${reference}${amountInCents}${currency}${WOMPI_INTEGRITY_KEY}`
+  const concatenated = `${reference}${amountInCents}${currency}${expirationTime ?? ''}${WOMPI_INTEGRITY_KEY}`
   return crypto.createHash('sha256').update(concatenated).digest('hex')
 }
 

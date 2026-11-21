@@ -11,8 +11,8 @@ export async function GET() {
       .order('name')
 
     if (error) {
-      console.error('[v0] Categories fetch error:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      console.error('[categories] GET', { code: error.code })
+      return NextResponse.json({ error: 'No se pudieron cargar las categorías' }, { status: 500 })
     }
 
     return NextResponse.json(categories)

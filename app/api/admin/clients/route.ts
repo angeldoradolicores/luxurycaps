@@ -1,16 +1,11 @@
-import { createClient } from '@/lib/supabase/server'
+import { getAdmin } from '@/lib/supabase/require-admin'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 
 export async function GET() {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-
-    const { data: profile } = await supabase
-      .from('profiles').select('is_admin').eq('id', user.id).maybeSingle()
-    if (!profile?.is_admin) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 })
+    const { error: denied } = await getAdmin()
+    if (denied) return denied
 
     const supabaseAdmin = createAdminClient()
 
@@ -20,13 +15,16 @@ export async function GET() {
       .select('id, full_name, email, phone, created_at, is_admin')
       .order('created_at', { ascending: false })
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) {
+      console.error('[admin/clients]', { code: error.code })
+      return NextResponse.json({ error: 'No se pudieron cargar los clientes' }, { status: 500 })
+    }
 
     // Get orders summary per user
     const { data: orders } = await supabaseAdmin
       .from('orders')
       .select('user_id, total, created_at, status')
-      .neq('user_id', null)
+      .not('user_id', 'is', null)
 
     // Build per-customer stats
     const orderMap = new Map<string, { count: number; spent: number; last: string }>()
@@ -48,7 +46,7 @@ export async function GET() {
 
     return NextResponse.json({ customers })
   } catch (error) {
-    console.error('[admin/clients] error:', error)
+    console.error('[admin/clients] error', { msg: (error as Error).message })
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })
   }
 }

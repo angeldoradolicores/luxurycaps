@@ -1,7 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import { sendOrderStatusEmail } from '@/lib/mail'
-import { requireAdmin, ADMIN_ASSIGNABLE_STATUSES } from '@/lib/supabase/require-admin'
+import { requireAdmin, ADMIN_ASSIGNABLE_STATUSES, UUID_RE } from '@/lib/supabase/require-admin'
 
 // Transiciones válidas para un admin. 'paid' solo lo asigna Wompi (lib/payments.ts)
 const TRANSITIONS: Record<string, string[]> = {
@@ -27,8 +27,13 @@ export async function PUT(
     const body = await request.json()
     const { status, tracking_number, carrier, tracking_photo_url, admin_note } = body
 
-    if (!orderId) {
+    if (!UUID_RE.test(orderId)) {
       return NextResponse.json({ error: 'ID de orden requerido' }, { status: 400 })
+    }
+
+    // La foto de la guía se muestra al cliente: sólo enlaces https (nada de javascript:, data:, etc.)
+    if (typeof tracking_photo_url === 'string' && tracking_photo_url !== '' && !/^https:\/\/[^\s"'<>]+$/i.test(tracking_photo_url)) {
+      return NextResponse.json({ error: 'La URL de la foto de la guía debe empezar por https://' }, { status: 400 })
     }
 
     for (const [field, value, max] of [

@@ -11,6 +11,9 @@ const MAX_PENDING_ORDERS_PER_USER = 3
 
 const SHIPPING_RATES = { interrapidisimo: 17000, recoger: 0 } as const
 
+// Vigencia del enlace de pago de Wompi (el pedido pendiente expira a las 2 h)
+const CHECKOUT_TTL_MS = 90 * 60 * 1000
+
 const OrderSchema = z.object({
   items: z
     .array(
@@ -94,7 +97,7 @@ export async function POST(request: Request) {
     const ids = [...new Set(items.map((i) => i.productId))]
     const { data: products, error: pErr } = await db
       .from('products')
-      .select('id, name, price, images')
+      .select('id, name, price, images, colors, sizes')
       .in('id', ids)
     if (pErr) {
       console.error('[orders] products lookup', { code: pErr.code })
@@ -103,6 +106,17 @@ export async function POST(request: Request) {
     const byId = new Map((products ?? []).map((p: any) => [p.id, p]))
     if (byId.size !== ids.length) {
       return NextResponse.json({ error: 'Algún producto ya no está disponible' }, { status: 400 })
+    }
+
+    // Color y talla deben existir en el producto (nada de texto libre en el pedido)
+    const invalidVariant = items.some((i) => {
+      const p: any = byId.get(i.productId)
+      const okColor = !i.color || !Array.isArray(p.colors) || p.colors.length === 0 || p.colors.includes(i.color)
+      const okSize = !i.size || !Array.isArray(p.sizes) || p.sizes.length === 0 || p.sizes.includes(i.size)
+      return !okColor || !okSize
+    })
+    if (invalidVariant) {
+      return NextResponse.json({ error: 'Color o talla no disponible. Revisa tu carrito.' }, { status: 400 })
     }
 
     const lines = items.map((i) => {
@@ -140,6 +154,17 @@ export async function POST(request: Request) {
         (!promo.min_purchase || subtotal >= promo.min_purchase)
       if (!valid) {
         return NextResponse.json({ error: 'Código de descuento no válido' }, { status: 400 })
+      }
+      // Usos máximos: cuenta también los pedidos pendientes que ya reservaron este cupón
+      if (promo!.max_uses) {
+        const { count: reserved } = await db
+          .from('orders')
+          .select('id', { count: 'exact', head: true })
+          .eq('promo_code', promo!.code)
+          .eq('status', 'pending')
+        if ((promo!.used_count ?? 0) + (reserved ?? 0) >= promo!.max_uses) {
+          return NextResponse.json({ error: 'Este código ya no está disponible' }, { status: 400 })
+        }
       }
       discount =
         promo!.discount_type === 'percentage'
@@ -220,14 +245,18 @@ export async function POST(request: Request) {
     }
 
     // 5) Firma de integridad sobre el monto calculado en servidor
+    // El enlace de pago caduca ANTES de que el pedido expire (2 h, expire_pending_orders):
+    // así nadie puede pagar un pedido cuyo stock ya se liberó.
     const amountInCents = Math.round(total * 100)
-    const signature = generateWompiSignature(order.id, amountInCents, 'COP')
+    const expirationTime = new Date(Date.now() + CHECKOUT_TTL_MS).toISOString() // 2026-01-01T12:00:00.000Z
+    const signature = generateWompiSignature(order.id, amountInCents, 'COP', expirationTime)
     const query: Record<string, string> = {
       'public-key': wompiPublicKey,
       currency: 'COP',
       'amount-in-cents': String(amountInCents),
       reference: order.id,
       'signature:integrity': signature,
+      'expiration-time': expirationTime,
       'redirect-url': `${siteUrl}/checkout/confirmacion?ref=${order.id}`,
       'customer-data:email': shippingInfo.email,
       'customer-data:full-name': shippingInfo.name,
@@ -300,7 +329,8 @@ export async function GET(request: Request) {
       .order('created_at', { ascending: false })
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      console.error('[orders] GET list', { code: error.code })
+      return NextResponse.json({ error: 'No se pudieron cargar tus pedidos' }, { status: 500 })
     }
 
     return NextResponse.json(orders || [])

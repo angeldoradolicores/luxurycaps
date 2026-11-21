@@ -24,10 +24,16 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Fecha de nacimiento inválida' }, { status: 400 })
     }
 
+    // Sólo los campos enviados: antes, cambiar el nombre borraba el teléfono y la fecha
+    const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+    if (fullName !== undefined) updates.full_name = fullName.trim()
+    if (phone !== undefined) updates.phone = phone || null
+    if (birthDate !== undefined) updates.birth_date = birthDate || null
+
     const supabaseAdmin = createAdminClient()
     const { error } = await supabaseAdmin
       .from('profiles')
-      .update({ full_name: fullName, phone: phone || null, birth_date: birthDate || null, updated_at: new Date().toISOString() })
+      .update(updates)
       .eq('id', user.id)
 
     if (error) {

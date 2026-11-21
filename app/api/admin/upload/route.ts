@@ -1,105 +1,81 @@
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
+import { getAdmin } from '@/lib/supabase/require-admin'
+import { checkRateLimit, tooManyRequests } from '@/lib/rate-limit'
 
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']
-const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo']
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024  // 10 MB
-const MAX_VIDEO_SIZE = 200 * 1024 * 1024 // 200 MB
-
-function sanitizeFileName(name: string): string {
-  // Remove path traversal chars, keep only alphanumeric, dots, dashes, underscores
-  return name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9._-]/g, '_')
-    .replace(/\.\.+/g, '.')
-    .slice(0, 100)
+/**
+ * Subida firmada: el admin pide permiso aquí (tipo + tamaño), el servidor genera la ruta
+ * y una URL de subida de un solo uso, y el navegador sube el archivo DIRECTO a Supabase.
+ * Así se evita el límite de 4,5 MB del cuerpo de las funciones de Vercel.
+ * El bucket "products" además restringe tipos MIME y tamaño (supabase-security-fix-3.sql).
+ */
+const IMAGE_TYPES: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
 }
+const VIDEO_TYPES: Record<string, string> = {
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+}
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024 // 10 MB
+const MAX_VIDEO_SIZE = 50 * 1024 * 1024 // 50 MB (límite por archivo del plan de Supabase)
+const BUCKET = 'products'
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient()
+    const { error: denied, user } = await getAdmin()
+    if (denied) return denied
 
-    // Verify admin
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    if (!(await checkRateLimit('admin:upload:user', user.id, 60, 600))) {
+      return tooManyRequests(600, 'Demasiadas subidas seguidas. Espera unos minutos.')
     }
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('is_admin')
-      .eq('id', user.id)
-      .maybeSingle()
+    const body = await request.json().catch(() => null)
+    const contentType = typeof body?.contentType === 'string' ? body.contentType.toLowerCase() : ''
+    const size = Number(body?.size)
 
-    if (!profile?.is_admin) {
-      return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 })
-    }
-
-    const formData = await request.formData()
-    const file = formData.get('file') as File | null
-
-    if (!file) {
-      return NextResponse.json({ error: 'No se recibio ningun archivo' }, { status: 400 })
-    }
-
-    const isImage = ALLOWED_IMAGE_TYPES.includes(file.type)
-    const isVideo = ALLOWED_VIDEO_TYPES.includes(file.type)
-
-    if (!isImage && !isVideo) {
+    const imageExt = IMAGE_TYPES[contentType]
+    const videoExt = VIDEO_TYPES[contentType]
+    if (!imageExt && !videoExt) {
       return NextResponse.json(
-        { error: `Tipo de archivo no permitido: ${file.type}. Solo se permiten imágenes (JPG, PNG, WebP, GIF) y videos (MP4, WebM, OGG, MOV).` },
+        { error: 'Tipo de archivo no permitido. Imágenes: JPG, PNG, WebP o GIF. Videos: MP4, WebM o MOV.' },
         { status: 400 }
       )
     }
 
-    const maxSize = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE
-    if (file.size > maxSize) {
-      const maxMB = maxSize / (1024 * 1024)
+    const isImage = Boolean(imageExt)
+    const maxSize = isImage ? MAX_IMAGE_SIZE : MAX_VIDEO_SIZE
+    if (!Number.isFinite(size) || size <= 0 || size > maxSize) {
       return NextResponse.json(
-        { error: `El archivo es demasiado grande. Máximo ${maxMB} MB para ${isImage ? 'imágenes' : 'videos'}.` },
+        { error: `El archivo es demasiado grande. Máximo ${maxSize / (1024 * 1024)} MB para ${isImage ? 'imágenes' : 'videos'}.` },
         { status: 400 }
       )
     }
 
-    const supabaseAdmin = createAdminClient()
-    const ext = sanitizeFileName(file.name).split('.').pop() || (isImage ? 'jpg' : 'mp4')
-    const uniqueName = `${user.id}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`
+    // Ruta generada por el servidor: nada del nombre original del archivo
     const folder = isImage ? 'images' : 'videos'
-    const storagePath = `${folder}/${uniqueName}`
+    const storagePath = `${folder}/${crypto.randomUUID()}.${imageExt || videoExt}`
 
-    // Convert to ArrayBuffer then Buffer for upload
-    const arrayBuffer = await file.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
-
-    const { error } = await supabaseAdmin.storage
-      .from('products')
-      .upload(storagePath, buffer, {
-        contentType: file.type,
-        upsert: false,
-        cacheControl: '3600',
-      })
-
-    if (error) {
-      console.error('[upload] Storage error:', error)
-      // If bucket doesn't exist, give a clear message
-      if (error.message?.includes('Bucket not found') || error.message?.includes('bucket')) {
-        return NextResponse.json(
-          { error: 'El bucket de almacenamiento "products" no existe. Por favor créalo en el dashboard de Supabase > Storage.' },
-          { status: 500 }
-        )
-      }
-      return NextResponse.json({ error: 'Error al subir el archivo: ' + error.message }, { status: 500 })
+    const storage = createAdminClient().storage.from(BUCKET)
+    const { data, error } = await storage.createSignedUploadUrl(storagePath)
+    if (error || !data) {
+      console.error('[admin/upload] signed url', { msg: error?.message })
+      return NextResponse.json({ error: 'No se pudo preparar la subida' }, { status: 500 })
     }
 
-    const { data: { publicUrl } } = supabaseAdmin.storage
-      .from('products')
-      .getPublicUrl(storagePath)
-
-    return NextResponse.json({ url: publicUrl, type: isImage ? 'image' : 'video' })
+    const { data: { publicUrl } } = storage.getPublicUrl(storagePath)
+    return NextResponse.json({
+      path: data.path,
+      token: data.token,
+      contentType,
+      url: publicUrl,
+      type: isImage ? 'image' : 'video',
+    })
   } catch (error) {
-    console.error('[upload] Admin upload error:', error)
+    console.error('[admin/upload] error', { msg: (error as Error).message })
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })
   }
 }
