@@ -9,6 +9,10 @@ import { checkRateLimit, limitByIp, tooManyRequests } from '@/lib/rate-limit'
 // Máximo de pedidos sin pagar simultáneos por usuario (evita acaparar inventario)
 const MAX_PENDING_ORDERS_PER_USER = 3
 
+// Unidades máximas de un mismo producto por pedido y por usuario en pedidos pendientes.
+// Debe coincidir con el tope de supabase-security-fix-7.sql (create_pending_order).
+const MAX_UNITS_PER_PRODUCT = 20
+
 const SHIPPING_RATES = { interrapidisimo: 17000, recoger: 0 } as const
 
 // Vigencia del enlace de pago de Wompi (el pedido pendiente expira a las 2 h)
@@ -120,6 +124,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Color o talla no disponible. Revisa tu carrito.' }, { status: 400 })
     }
 
+    // Tope de unidades por producto en UN pedido (sumando todas sus líneas).
+    // Sin esto, 30 líneas de 20 unidades reservaban 600 de un mismo producto.
+    const unitsByProduct = new Map<string, number>()
+    for (const i of items) {
+      unitsByProduct.set(i.productId, (unitsByProduct.get(i.productId) ?? 0) + i.quantity)
+    }
+    if ([...unitsByProduct.values()].some((q) => q > MAX_UNITS_PER_PRODUCT)) {
+      return NextResponse.json(
+        { error: `Máximo ${MAX_UNITS_PER_PRODUCT} unidades por producto en un mismo pedido.` },
+        { status: 400 }
+      )
+    }
+
     const lines = items.map((i) => {
       const p: any = byId.get(i.productId)
       return {
@@ -216,6 +233,12 @@ export async function POST(request: Request) {
       const msg = createError?.message || ''
       if (msg.includes('OUT_OF_STOCK')) {
         return NextResponse.json({ error: 'Uno de los productos se agotó. Revisa tu carrito.' }, { status: 409 })
+      }
+      if (msg.includes('PRODUCT_LIMIT')) {
+        return NextResponse.json(
+          { error: `Ya tienes ${MAX_UNITS_PER_PRODUCT} unidades de un producto en pedidos pendientes. Completa o espera tu pedido anterior.` },
+          { status: 429 }
+        )
       }
       if (msg.includes('TOO_MANY_PENDING')) {
         return NextResponse.json(
