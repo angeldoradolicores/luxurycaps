@@ -49,7 +49,7 @@ const headingStyle = {
   letterSpacing: '0.25em',
   textTransform: 'uppercase' as const,
   fontWeight: 600,
-  marginBottom: '20px',
+  marginBottom: '14px',
 }
 
 export function Footer() {
@@ -59,10 +59,10 @@ export function Footer() {
       <div style={{ height: '1px', background: 'linear-gradient(to right, transparent, rgba(221,232,245,0.2), transparent)' }} />
 
       <div className="container mx-auto px-4 lg:px-8 pt-20 pb-10">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-12 mb-16">
+        <div className="grid grid-cols-3 md:grid-cols-2 lg:grid-cols-5 gap-x-4 gap-y-10 md:gap-12 mb-12 md:mb-16">
 
           {/* Brand — col span 2 */}
-          <div className="lg:col-span-2">
+          <div className="col-span-3 md:col-span-2 lg:col-span-2">
             <Link href="/" className="inline-block mb-8">
               <div className="flex flex-col">
                 {/* Logo "grabado" — tono sobre tono */}
@@ -141,12 +141,34 @@ export function Footer() {
                 </motion.a>
               ))}
             </div>
+
+            {/* Contacto: fila compacta en celular, columna en escritorio */}
+            <div
+              className="mt-8 flex flex-wrap gap-x-6 gap-y-3 md:block md:space-y-3"
+              style={{ borderTop: '1px solid #1a1a1a', paddingTop: '20px' }}
+            >
+              {[
+                { icon: Phone, text: '+57 300 657 7286' },
+                { icon: Mail, text: 'urbancrowncol4@gmail.com' },
+                { icon: MapPin, text: 'Colombia' },
+              ].map(({ icon: Icon, text }) => (
+                <div key={text} className="flex items-center gap-2.5">
+                  <Icon style={{ width: '11px', height: '11px', color: '#C8A44D', flexShrink: 0 }} />
+                  <span
+                    className="text-[11px]"
+                    style={{ fontFamily: 'var(--font-sans)', color: '#555', letterSpacing: '0.03em' }}
+                  >
+                    {text}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Shop Links */}
           <div>
             <h4 style={headingStyle}>Tienda</h4>
-            <ul className="space-y-3.5">
+            <ul className="space-y-2.5 md:space-y-3.5">
               {footerLinks.shop.map((link) => (
                 <li key={link.href}>
                   <Link
@@ -165,7 +187,7 @@ export function Footer() {
           {/* Support Links */}
           <div>
             <h4 style={headingStyle}>Soporte</h4>
-            <ul className="space-y-3.5">
+            <ul className="space-y-2.5 md:space-y-3.5">
               {footerLinks.support.map((link) => (
                 <li key={link.href}>
                   <Link
@@ -184,7 +206,7 @@ export function Footer() {
           {/* Company Links + Contact */}
           <div>
             <h4 style={headingStyle}>Empresa</h4>
-            <ul className="space-y-3.5 mb-8">
+            <ul className="space-y-2.5 md:space-y-3.5 mb-8">
               {footerLinks.company.map((link) => (
                 <li key={link.href}>
                   <Link
@@ -199,24 +221,6 @@ export function Footer() {
               ))}
             </ul>
 
-            {/* Contact */}
-            <div className="space-y-3" style={{ borderTop: '1px solid #1a1a1a', paddingTop: '20px' }}>
-              {[
-                { icon: Phone, text: '+57 300 657 7286' },
-                { icon: Mail, text: 'urbancrowncol4@gmail.com' },
-                { icon: MapPin, text: 'Colombia' },
-              ].map(({ icon: Icon, text }) => (
-                <div key={text} className="flex items-center gap-2.5">
-                  <Icon style={{ width: '11px', height: '11px', color: '#C8A44D', flexShrink: 0 }} />
-                  <span
-                    className="text-[11px]"
-                    style={{ fontFamily: 'var(--font-sans)', color: '#555', letterSpacing: '0.03em' }}
-                  >
-                    {text}
-                  </span>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
 
@@ -232,7 +236,7 @@ export function Footer() {
         {/* Bottom bar */}
         <div className="flex flex-col md:flex-row items-center justify-between gap-4">
           <p
-            className="text-[10px] uppercase tracking-[0.25em]"
+            className="text-[10px] uppercase tracking-[0.25em] text-center md:text-left"
             style={{ fontFamily: 'var(--font-sans)', color: '#333', letterSpacing: '0.25em' }}
           >
             © 2026 Urban Crown. Todos los derechos reservados.
