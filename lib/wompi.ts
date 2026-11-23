@@ -172,6 +172,8 @@ export function verifyWompiEventChecksum(event: any): boolean {
   if (!Array.isArray(props) || props.length === 0 || props.length > 20) return false
   // Propiedades deben ser rutas de texto ("transaction.id"); cualquier otra cosa es una firma inválida
   if (!props.every((p: unknown) => typeof p === 'string' && /^[\w.]{1,100}$/.test(p))) return false
+  // El ID de transacción es lo único que el webhook usa del evento: debe estar cubierto por la firma
+  if (!props.includes('transaction.id')) return false
   if (typeof checksum !== 'string' || event?.timestamp == null) return false
   if (!/^[0-9a-fA-F]{64}$/.test(checksum)) return false
 
