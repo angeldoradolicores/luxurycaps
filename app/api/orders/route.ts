@@ -104,7 +104,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No pudimos verificar los productos, intenta de nuevo' }, { status: 503 })
     }
     const byId = new Map((products ?? []).map((p: any) => [p.id, p]))
-    if (byId.size !== ids.length) {
+    // Productos inexistentes o sin precio válido (p. ej. $0 por error) no se venden
+    if (byId.size !== ids.length || [...byId.values()].some((p: any) => !Number.isInteger(Number(p.price)) || Number(p.price) <= 0)) {
       return NextResponse.json({ error: 'Algún producto ya no está disponible' }, { status: 400 })
     }
 

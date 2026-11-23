@@ -5,7 +5,33 @@ import { NextResponse, type NextRequest } from 'next/server'
  * Middleware using Supabase SSR to refresh session cookies on every request.
  * This is REQUIRED so the auth token stays alive across page navigations.
  */
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+
+/**
+ * Anti-CSRF: las APIs que modifican datos sólo aceptan peticiones del propio sitio.
+ * Un navegador siempre envía Origin / Sec-Fetch-Site en un POST/PUT/DELETE entre sitios.
+ * El webhook de Wompi queda fuera (llega servidor a servidor y se valida por checksum).
+ */
+function isCrossSiteMutation(request: NextRequest): boolean {
+  const path = request.nextUrl.pathname
+  if (!path.startsWith('/api/') || SAFE_METHODS.has(request.method) || path.startsWith('/api/webhooks/')) return false
+
+  if (request.headers.get('sec-fetch-site') === 'cross-site') return true
+  const origin = request.headers.get('origin')
+  if (!origin) return false // clientes no-navegador (sin cookies de un tercero)
+
+  const allowed = new Set([request.nextUrl.origin])
+  try {
+    if (process.env.NEXT_PUBLIC_SITE_URL) allowed.add(new URL(process.env.NEXT_PUBLIC_SITE_URL).origin)
+  } catch {}
+  return !allowed.has(origin)
+}
+
 export async function middleware(request: NextRequest) {
+  if (isCrossSiteMutation(request)) {
+    return NextResponse.json({ error: 'Origen no permitido' }, { status: 403 })
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(

@@ -72,14 +72,21 @@ export async function applyWompiTransaction(tx: WompiTransaction): Promise<Apply
     }
     if (result !== 'updated') return 'noop'
   } else {
-    const { data: cancelled, error: rpcErr } = await db.rpc('cancel_order', {
+    // Pendiente → cancelar y devolver stock. Pago ya aprobado y luego ANULADO → alerta + despacho bloqueado.
+    // Un fallo de OTRO intento nunca invalida un pago válido (supabase-security-fix-6.sql).
+    const { data: failureResult, error: rpcErr } = await db.rpc('apply_failed_wompi_transaction', {
       p_order_id: order.id,
-      p_from: ['pending'],
-      p_release: true,
       p_tx_id: tx.id,
+      p_status: tx.status,
     })
     if (rpcErr) throw rpcErr
-    if (cancelled !== true) return 'noop' // ya no estaba pendiente (evento duplicado o ya resuelto)
+    if (failureResult === 'flagged') {
+      console.error('[payments] Transacción anulada sobre pedido pagado: despacho bloqueado; revisar payment_issue', {
+        orderId: order.id,
+        txId: tx.id,
+      })
+    }
+    if (failureResult !== 'updated') return 'noop' // evento duplicado, otro intento o ya resuelto
   }
 
   // Efectos secundarios después de responder (after() evita que se corten en serverless)

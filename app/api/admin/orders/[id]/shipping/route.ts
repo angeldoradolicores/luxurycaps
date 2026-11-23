@@ -51,7 +51,7 @@ export async function PUT(
 
     const { data: current, error: currentError } = await supabaseAdmin
       .from('orders')
-      .select('status')
+      .select('status, payment_issue')
       .eq('id', orderId)
       .maybeSingle()
     if (currentError || !current) {
@@ -68,6 +68,14 @@ export async function PUT(
           { status: 400 }
         )
       }
+    }
+
+    // Con una alerta de pago activa no se despacha (también lo impone un trigger en la BD)
+    if (statusChange && ['processing', 'shipped', 'delivered'].includes(statusChange) && current.payment_issue) {
+      return NextResponse.json(
+        { error: 'Este pedido tiene una alerta de pago sin resolver. Revísala y márcala como resuelta antes de despacharlo.' },
+        { status: 409 }
+      )
     }
 
     // Cancelar = cambio de estado + devolución de stock en UNA transacción (cancel_order).
@@ -107,6 +115,12 @@ export async function PUT(
       .select('*, items:order_items(*)')
       .maybeSingle()
 
+    if (orderError?.message?.includes('PAYMENT_REVIEW_REQUIRED')) {
+      return NextResponse.json(
+        { error: 'Este pedido tiene una alerta de pago sin resolver. Revísala y márcala como resuelta antes de despacharlo.' },
+        { status: 409 }
+      )
+    }
     if (orderError) {
       console.error('[shipping] Order update error', { orderId, code: orderError.code })
       return NextResponse.json({ error: 'Error al actualizar la orden' }, { status: 500 })

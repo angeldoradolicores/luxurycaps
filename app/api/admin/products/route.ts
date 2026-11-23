@@ -24,7 +24,8 @@ const money = z.number().int('El precio debe ser un número entero').min(0).max(
 const ProductSchema = z.object({
   name: z.string().trim().min(1, 'Nombre requerido').max(150),
   description: z.string().max(5000).optional(),
-  price: money.optional(),
+  // Precio > 0: un producto en $0 se podría "comprar" pagando sólo el envío
+  price: money.min(100, 'El precio mínimo es $100').optional(),
   original_price: money.nullable().optional(),
   category_id: z.string().max(100).nullable().optional(),
   category: z.string().max(100).nullable().optional(),
@@ -126,6 +127,9 @@ export async function POST(request: Request) {
     const parsed = ProductSchema.safeParse(await request.json().catch(() => null))
     if (!parsed.success) return badRequest(parsed.error)
     const input = parsed.data
+    if (input.price === undefined) {
+      return NextResponse.json({ error: 'Dato inválido en "price": el precio es obligatorio' }, { status: 400 })
+    }
 
     const slug = await generateUniqueSlug(supabase, 'products', input.name, 'producto')
     const { data: product, error } = await supabase
@@ -134,7 +138,7 @@ export async function POST(request: Request) {
         name: input.name,
         slug,
         description: input.description ?? '',
-        price: input.price ?? 0,
+        price: input.price,
         original_price: input.original_price || null,
         category_id: await resolveCategoryId(supabase, input),
         stock: input.stock ?? 0,
