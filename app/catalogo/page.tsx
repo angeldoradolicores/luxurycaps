@@ -13,7 +13,7 @@ import { Footer } from '@/components/footer'
 import { ChatBot } from '@/components/chatbot'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ProductCard } from '@/components/product-card'
+import { ProductCard, PRODUCT_GRID } from '@/components/product-card'
 import {
   Select,
   SelectContent,
@@ -133,7 +133,7 @@ function CatalogoContent() {
 
   // Skeleton loader
   const ProductSkeleton = () => (
-    <div className="animate-pulse space-y-4">
+    <div className="animate-pulse space-y-2 sm:space-y-4">
       <div className="aspect-square bg-graphite border border-steel/20 rounded-lg" />
       <div className="space-y-2">
         <div className="h-3 bg-steel rounded w-1/4" />
@@ -346,7 +346,7 @@ function CatalogoContent() {
       <section className="pb-32">
         <div className="container mx-auto px-4 max-w-7xl">
           {loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+            <div className={PRODUCT_GRID}>
               {[...Array(8)].map((_, i) => (
                 <ProductSkeleton key={i} />
               ))}
@@ -360,7 +360,7 @@ function CatalogoContent() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.5 }}
                 className={viewMode === 'grid' 
-                  ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8'
+                  ? PRODUCT_GRID
                   : 'flex flex-col gap-6'
                 }
               >
