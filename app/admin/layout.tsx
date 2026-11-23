@@ -41,27 +41,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [isAdminVerified, setIsAdminVerified] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   
-  const isAdmin = useAuthStore(state => state.isAdmin)
-  const user = useAuthStore(state => state.user)
 
   // Verify admin status on mount
   useEffect(() => {
     const verifyAdmin = async () => {
       try {
         const supabase = createClient()
-        
-        // First check auth store
-        if (isAdmin && user) {
-          setIsAdminVerified(true)
-          setIsLoading(false)
-          return
-        }
 
-        // If not in store, verify with server
+        // Siempre se verifica contra el servidor (el estado del navegador se puede manipular).
+        // La protección real está en el middleware, en las APIs (getAdmin) y en RLS.
         const { data: { user: authUser } } = await supabase.auth.getUser()
-        
+
         if (!authUser) {
-          router.push(`/auth/login?redirect=${pathname}`)
+          router.push(`/auth/login?redirect=${encodeURIComponent(pathname)}`)
           return
         }
 

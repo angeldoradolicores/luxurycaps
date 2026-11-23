@@ -5,15 +5,12 @@ export async function POST() {
   try {
     const supabase = await createClient()
 
-    // 1. Obtener el usuario ANTES de cerrar sesión
-    const { data: { user } } = await supabase.auth.getUser()
-
     // 2. No borrar el carrito al cerrar sesión. Sólo se cierra la sesión.
     const { error } = await supabase.auth.signOut()
 
     if (error) {
       console.error('[logout] Sign out error:', error.message)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ error: 'No se pudo cerrar la sesión' }, { status: 500 })
     }
 
     // 4. Retornar éxito

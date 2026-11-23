@@ -7,7 +7,8 @@ export async function GET(request: Request) {
     const category = searchParams.get('category')
     const featured = searchParams.get('featured')
     const promotion = searchParams.get('promotion')
-    const search = searchParams.get('search')
+    // Normaliza la búsqueda: longitud acotada y sin comodines de LIKE (% _) ni caracteres especiales
+    const search = searchParams.get('search')?.slice(0, 80).replace(/[%_\\]/g, '').trim()
     const limit = searchParams.get('limit')
 
     const supabase = await createClient()
@@ -33,6 +34,10 @@ export async function GET(request: Request) {
       .order('created_at', { ascending: false })
 
     // Apply filters
+    if (category && category.length > 100) {
+      return NextResponse.json([])
+    }
+
     if (category && category !== 'Todos' && category !== 'all') {
       // Accept either a category UUID (category_id) or a category slug/name.
       // Use a stricter UUID regex to detect real UUIDs.
@@ -75,7 +80,7 @@ export async function GET(request: Request) {
 
     if (limit) {
       const requestedLimit = Number.parseInt(limit, 10)
-      const capLimit = Number.isFinite(requestedLimit) ? Math.min(requestedLimit, 100) : undefined
+      const capLimit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : undefined
       if (capLimit) {
         query = query.limit(capLimit)
       }
@@ -84,8 +89,8 @@ export async function GET(request: Request) {
     const { data: products, error } = await query
 
     if (error) {
-      console.error('[v0] Products fetch error:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      console.error('[products] fetch error', { code: error.code })
+      return NextResponse.json({ error: 'No se pudieron cargar los productos' }, { status: 500 })
     }
 
     const transformedProducts = (products || []).map((p: any) => {
@@ -107,7 +112,7 @@ export async function GET(request: Request) {
       },
     })
   } catch (error) {
-    console.error('[v0] Products API error:', error)
+    console.error('[products] API error', { msg: (error as Error).message })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

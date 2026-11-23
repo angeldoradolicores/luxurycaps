@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -222,26 +222,30 @@ function OrdersContent({ initialUser, initialOrders }: { initialUser: any, initi
     }
   }, [user, supabase])
 
-  // Guest Realtime Subscription
+  // Guest status polling (la RLS ya no permite leer pedidos ajenos con la anon key;
+  // /api/orders/track valida número de pedido + email en el servidor)
+  const trackedQueryRef = useRef<{ orderNum: string; email: string } | null>(null)
   useEffect(() => {
-    if (!trackedOrder) return
+    if (!trackedOrder || !trackedQueryRef.current) return
+    const { orderNum, email } = trackedQueryRef.current
+    let lastStatus = trackedOrder.status
 
-    const guestChannel = supabase
-      .channel(`guest-order-${trackedOrder.id}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${trackedOrder.id}` },
-        (payload: any) => {
-          console.log('Tracked guest order updated:', payload)
-          setTrackedOrder(prev => prev ? { ...prev, ...payload.new } : null)
-          toast.info(`Tu pedido #${payload.new.order_number} ha sido actualizado a: ${payload.new.status}`)
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/orders/track?order_number=${encodeURIComponent(orderNum)}&email=${encodeURIComponent(email)}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (data.order && data.order.status !== lastStatus) {
+          lastStatus = data.order.status
+          setTrackedOrder(data.order)
+          toast.info(`Tu pedido #${data.order.order_number} ha sido actualizado a: ${data.order.status}`)
         }
-      )
-      .subscribe()
+      } catch {
+        // reintenta en el siguiente ciclo
+      }
+    }, 30000)
 
-    return () => {
-      supabase.removeChannel(guestChannel)
-    }
+    return () => clearInterval(interval)
   }, [trackedOrder?.id])
 
   // Auto Lookup if Params exist
@@ -261,6 +265,7 @@ function OrdersContent({ initialUser, initialOrders }: { initialUser: any, initi
         throw new Error(data.error || 'No se encontró el pedido o los datos no coinciden.')
       }
       if (data.order) {
+        trackedQueryRef.current = { orderNum, email: emailStr }
         setTrackedOrder(data.order)
       } else {
         throw new Error('Pedido no encontrado.')

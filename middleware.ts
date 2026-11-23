@@ -5,7 +5,33 @@ import { NextResponse, type NextRequest } from 'next/server'
  * Middleware using Supabase SSR to refresh session cookies on every request.
  * This is REQUIRED so the auth token stays alive across page navigations.
  */
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+
+/**
+ * Anti-CSRF: las APIs que modifican datos sólo aceptan peticiones del propio sitio.
+ * Un navegador siempre envía Origin / Sec-Fetch-Site en un POST/PUT/DELETE entre sitios.
+ * El webhook de Wompi queda fuera (llega servidor a servidor y se valida por checksum).
+ */
+function isCrossSiteMutation(request: NextRequest): boolean {
+  const path = request.nextUrl.pathname
+  if (!path.startsWith('/api/') || SAFE_METHODS.has(request.method) || path.startsWith('/api/webhooks/')) return false
+
+  if (request.headers.get('sec-fetch-site') === 'cross-site') return true
+  const origin = request.headers.get('origin')
+  if (!origin) return false // clientes no-navegador (sin cookies de un tercero)
+
+  const allowed = new Set([request.nextUrl.origin])
+  try {
+    if (process.env.NEXT_PUBLIC_SITE_URL) allowed.add(new URL(process.env.NEXT_PUBLIC_SITE_URL).origin)
+  } catch {}
+  return !allowed.has(origin)
+}
+
 export async function middleware(request: NextRequest) {
+  if (isCrossSiteMutation(request)) {
+    return NextResponse.json({ error: 'Origen no permitido' }, { status: 403 })
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -29,47 +55,49 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // Refresh the session — this keeps the user logged in across navigations
-  const { data: { session } } = await supabase.auth.getSession()
-  const user = session?.user ?? null
+  const path = request.nextUrl.pathname
+  const needsVerifiedUser = path.startsWith('/admin') || path.startsWith('/perfil')
+
+  // En /admin y /perfil se valida el JWT con el servidor de Auth (getUser);
+  // getSession() sólo lee la cookie y no comprueba la firma.
+  const user = needsVerifiedUser
+    ? (await supabase.auth.getUser()).data.user
+    : (await supabase.auth.getSession()).data.session?.user ?? null
 
   // Protect /admin routes
-  if (request.nextUrl.pathname.startsWith('/admin')) {
+  if (path.startsWith('/admin')) {
     if (!user) {
       const login = request.nextUrl.clone()
       login.pathname = '/auth/login'
-      login.searchParams.set('redirect', request.nextUrl.pathname)
+      login.search = ''
+      login.searchParams.set('redirect', path)
       return NextResponse.redirect(login)
     }
 
-    // Add a small delay to ensure DB is updated with admin status
-    // This helps with timing issues on Vercel
     const { data: profile, error } = await supabase
       .from('profiles')
       .select('is_admin')
       .eq('id', user.id)
       .maybeSingle()
 
-    // If profile not found (new user), allow entry - will be caught by page level checks
-    if (error && error.code !== 'PGRST116') {
-      console.error('[middleware] Profile lookup error:', error)
-    }
+    if (error) console.error('[middleware] profile lookup', { code: error.code })
 
-    if (profile && !profile.is_admin) {
+    // Sin perfil, error o no-admin => fuera (fail-closed)
+    if (profile?.is_admin !== true) {
       const home = request.nextUrl.clone()
       home.pathname = '/'
+      home.search = ''
       home.searchParams.set('unauthorized', '1')
       return NextResponse.redirect(home)
     }
-    
-    // If profile is null, silently allow - page will handle permission check
   }
 
   // Protect /perfil routes
-  if (request.nextUrl.pathname.startsWith('/perfil') && !user) {
+  if (path.startsWith('/perfil') && !user) {
     const login = request.nextUrl.clone()
     login.pathname = '/auth/login'
-    login.searchParams.set('redirect', request.nextUrl.pathname)
+    login.search = ''
+    login.searchParams.set('redirect', path)
     return NextResponse.redirect(login)
   }
 

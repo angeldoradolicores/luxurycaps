@@ -23,6 +23,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
+import { createClient } from '@/lib/supabase/client'
 import {
   Select,
   SelectContent,
@@ -591,18 +592,26 @@ function ProductModal(props: {
     else setUploadingVideo(true)
 
     try {
-      const data = new FormData()
-      data.append('file', file)
-
+      // 1) El servidor valida tipo/tamaño y entrega una URL de subida firmada
       const response = await fetch('/api/admin/upload', {
         method: 'POST',
         credentials: 'include',
-        body: data,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contentType: file.type, size: file.size }),
       })
-      
+
       const result = await response.json().catch(() => null)
-      
-      if (response.ok && result?.url) {
+
+      // 2) El navegador sube directo a Supabase Storage (sin el límite de 4,5 MB de Vercel)
+      let uploadError: string | null = null
+      if (response.ok && result?.token) {
+        const { error } = await createClient()
+          .storage.from('products')
+          .uploadToSignedUrl(result.path, result.token, file, { contentType: result.contentType })
+        if (error) uploadError = error.message
+      }
+
+      if (response.ok && result?.url && !uploadError) {
         if (type === 'image') {
           setFormData(prev => ({
             ...prev,
@@ -615,7 +624,7 @@ function ProductModal(props: {
           }))
         }
       } else {
-        const message = result?.error || 'Error subiendo archivo'
+        const message = result?.error || (uploadError ? 'Error subiendo archivo: ' + uploadError : 'Error subiendo archivo')
         console.error('Error uploading file:', message)
         toast.error(message)
       }
@@ -677,7 +686,7 @@ function ProductModal(props: {
                     {uploadingImage ? '' : 'Subir'}
                     <Input
                       type="file"
-                      accept="image/*"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
                       onChange={(e) => handleFileUpload(e, 'image')}
                       className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-20"
                       disabled={uploadingImage}
@@ -731,7 +740,7 @@ function ProductModal(props: {
                     {uploadingVideo ? '' : 'Subir'}
                     <Input
                       type="file"
-                      accept="video/*"
+                      accept="video/mp4,video/webm,video/quicktime"
                       onChange={(e) => handleFileUpload(e, 'video')}
                       className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-20"
                       disabled={uploadingVideo}

@@ -1,8 +1,13 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
+import { limitByIp } from '@/lib/rate-limit'
 
 export async function GET(request: Request) {
   try {
+    // Polling de invitados: 1 cada 30 s (≈20/10 min) + búsquedas manuales
+    const limited = await limitByIp(request, 'orders:track:ip', 40, 600)
+    if (limited) return limited
+
     const { searchParams } = new URL(request.url)
     const orderNumber = searchParams.get('order_number')?.trim()
     const email = searchParams.get('email')?.trim().toLowerCase()
@@ -19,12 +24,12 @@ export async function GET(request: Request) {
     // Fetch order details with products
     const { data: order, error } = await supabaseAdmin
       .from('orders')
-      .select('*, items:order_items(*)')
+      .select('id, order_number, user_id, guest_email, shipping_address, created_at, status, total, subtotal, shipping_cost, discount, shipping_method, tracking_number, carrier, tracking_photo_url, admin_note, shipped_at, delivered_at, items:order_items(product_name, product_image, price, quantity, color, size)')
       .eq('order_number', orderNumber)
       .maybeSingle()
 
     if (error) {
-      console.error('[track-api] Database error:', error)
+      console.error('[track-api] Database error', { code: error.code })
       return NextResponse.json({ error: 'Error al buscar el pedido' }, { status: 500 })
     }
 
@@ -66,7 +71,8 @@ export async function GET(request: Request) {
       )
     }
 
-    return NextResponse.json({ order })
+    const { user_id: _userId, guest_email: _guestEmail, shipping_address: _address, ...customerOrder } = order
+    return NextResponse.json({ order: customerOrder })
   } catch (error) {
     console.error('[track-api] Server error:', error)
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })

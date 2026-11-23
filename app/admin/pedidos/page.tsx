@@ -42,6 +42,7 @@ interface Order {
   carrier?: string
   tracking_photo_url?: string
   admin_note?: string
+  payment_issue?: string | null
   shipped_at?: string
   delivered_at?: string
   shipping_address: {
@@ -92,7 +93,32 @@ export default function PedidosPage() {
     admin_note: '',
   })
 
+  const [resolveNote, setResolveNote] = useState('')
+  const [resolving, setResolving] = useState(false)
+
   useEffect(() => { fetchOrders() }, [])
+
+  // Marca la alerta de pago como resuelta (después de reembolsar / conciliar con Wompi)
+  const resolvePaymentIssue = async (orderId: string) => {
+    setResolving(true)
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/resolve-issue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: resolveNote }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'No se pudo resolver la alerta')
+      toast.success('Alerta marcada como resuelta')
+      setResolveNote('')
+      setOrders(prev => prev.map(o => (o.id === orderId ? { ...o, payment_issue: null } : o)))
+      setSelectedOrder(prev => (prev && prev.id === orderId ? { ...prev, payment_issue: null } : prev))
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setResolving(false)
+    }
+  }
 
   useEffect(() => {
     if (selectedOrder) {
@@ -276,6 +302,9 @@ export default function PedidosPage() {
                       {order.tracking_number && (
                         <p className="text-xs text-purple-400 mt-0.5">📦 {order.tracking_number}</p>
                       )}
+                      {order.payment_issue && (
+                        <p className="text-xs font-semibold text-red-400 mt-0.5">⚠️ Pago aprobado sobre pedido cancelado</p>
+                      )}
                     </td>
                     <td className="p-4 hidden md:table-cell">
                       <p className="font-medium text-sm">{order.shipping_address?.name}</p>
@@ -333,6 +362,33 @@ export default function PedidosPage() {
           </DialogHeader>
           {selectedOrder && (
             <div className="space-y-5">
+              {selectedOrder.payment_issue && (
+                <div className="p-4 rounded-xl border border-red-500/40 bg-red-500/10 text-sm text-red-300">
+                  <p className="font-semibold mb-1">⚠️ Revisión de pago requerida</p>
+                  <p className="whitespace-pre-line">{selectedOrder.payment_issue}</p>
+                  <p className="mt-2 text-xs text-red-200/80">
+                    Mientras la alerta esté activa no se puede preparar, enviar ni entregar este pedido.
+                    Revisa la transacción en el panel de Wompi y, cuando lo resuelvas (reembolso, conciliación), descríbelo aquí.
+                  </p>
+                  <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                    <Input
+                      value={resolveNote}
+                      onChange={e => setResolveNote(e.target.value)}
+                      placeholder='Ej: "Reembolsado en Wompi el 21/11"'
+                      maxLength={500}
+                      className="bg-background/60"
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={resolving || resolveNote.trim().length < 5}
+                      onClick={() => resolvePaymentIssue(selectedOrder.id)}
+                    >
+                      {resolving ? 'Guardando…' : 'Marcar como resuelta'}
+                    </Button>
+                  </div>
+                </div>
+              )}
               {/* Status */}
               <div className="flex items-center justify-between p-4 rounded-xl bg-secondary/30">
                 {(() => { const st = statusConfig[selectedOrder.status as keyof typeof statusConfig] || statusConfig.pending; return (

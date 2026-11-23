@@ -1,10 +1,12 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { safeRedirectPath } from '@/lib/safe-redirect'
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
-  const next = searchParams.get('next') ?? '/'
+  // Solo rutas internas: evita redirecciones abiertas (?next=@evil.com, //evil.com, https://evil.com)
+  const next = safeRedirectPath(searchParams.get('next'))
 
   if (code) {
     const supabase = await createClient()
@@ -26,16 +28,9 @@ export async function GET(request: Request) {
         }
       }
 
-      const forwardedHost = request.headers.get('x-forwarded-host')
-      const isLocalEnv = process.env.NODE_ENV === 'development'
-      
-      if (isLocalEnv) {
-        return NextResponse.redirect(`${origin}${finalNext}`)
-      } else if (forwardedHost) {
-        return NextResponse.redirect(`https://${forwardedHost}${finalNext}`)
-      } else {
-        return NextResponse.redirect(`${origin}${finalNext}`)
-      }
+      // Base fija (no se confía en cabeceras Host / X-Forwarded-Host)
+      const base = process.env.NODE_ENV === 'development' ? origin : process.env.NEXT_PUBLIC_SITE_URL || origin
+      return NextResponse.redirect(new URL(finalNext, base))
     }
   }
 

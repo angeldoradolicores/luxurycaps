@@ -59,14 +59,19 @@ const paymentMethods = [
 ]
 
 export default function CheckoutPage() {
-  const { items, removeItem, updateQuantity, total, clearCart } = useCartStore()
+  const { items, removeItem, updateQuantity, total } = useCartStore()
   const { user, isInitialized } = useAuthStore()
   const router = useRouter()
   const cartTotal = total()
   const [step, setStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
   const [promoCode, setPromoCode] = useState('')
-  const [appliedPromo, setAppliedPromo] = useState<{ code: string; discount: number } | null>(null)
+  const [appliedPromo, setAppliedPromo] = useState<{
+    code: string
+    discount_type: 'percentage' | 'fixed' | string
+    discount_value: number
+    min_purchase: number | null
+  } | null>(null)
   const [isApplyingPromo, setIsApplyingPromo] = useState(false)
 
   // Form data
@@ -81,14 +86,6 @@ export default function CheckoutPage() {
   const [selectedDepartment, setSelectedDepartment] = useState('');
   const [municipalities, setMunicipalities] = useState<string[]>([]);
   const [selectedPayment, setSelectedPayment] = useState('CARD')
-  const [cardData, setCardData] = useState({
-    number: '',
-    expMonth: '',
-    expYear: '',
-    cvc: '',
-    holder: '',
-  })
-  const [nequiPhone, setNequiPhone] = useState('')
 
   const normalizeDigits = (value: string) => value.replace(/\D/g, '')
   const isValidEmail = (email: string) => email.trim() === '' ? false : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
@@ -155,7 +152,6 @@ export default function CheckoutPage() {
 
     // Load user data and addresses
     if (user && isInitialized) {
-      console.log('Loading user data for checkout, userId:', user.id)
       loadUserDataAndAddresses()
     }
   }, [isInitialized, user])
@@ -166,19 +162,14 @@ export default function CheckoutPage() {
     try {
       const supabase = createClient()
       
-      console.log('Fetching profile for user:', user.id)
-      
       // Load profile
-      const { data: profile, error: profileError } = await supabase
+      const { data: profile } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
         .maybeSingle()
 
-      console.log('Profile data:', profile, 'Error:', profileError)
-
       if (profile) {
-        console.log('Setting shipping data with profile:', profile)
         setShippingData(prev => ({
           ...prev,
           fullName: profile.full_name || '',
@@ -188,13 +179,11 @@ export default function CheckoutPage() {
       }
 
       // Load addresses
-      const { data: userAddresses, error: addressError } = await supabase
+      const { data: userAddresses } = await supabase
         .from('addresses')
         .select('*')
         .eq('user_id', user.id)
         .order('is_default', { ascending: false })
-
-      console.log('Addresses data:', userAddresses, 'Error:', addressError)
 
       if (userAddresses && userAddresses.length > 0) {
         setAddresses(userAddresses as Address[])
@@ -202,11 +191,8 @@ export default function CheckoutPage() {
         const defaultAddr = userAddresses.find((a: any) => a.is_default)
         const firstAddr = userAddresses[0]
         const addressToSelect = defaultAddr || firstAddr
-        console.log('Auto-selecting address:', addressToSelect)
         setSelectedAddressId(addressToSelect.id)
         fillAddressData(addressToSelect)
-      } else {
-        console.log('No addresses found for user')
       }
     } catch (err) {
       console.error('Error loading user data:', err)
@@ -273,7 +259,15 @@ export default function CheckoutPage() {
     }
   }
 
-  const discountAmount = appliedPromo?.discount || 0
+  // Estimación visual: el servidor recalcula precios, envío y descuento al crear la orden
+  const discountAmount = (() => {
+    if (!appliedPromo) return 0
+    if (appliedPromo.min_purchase && cartTotal < appliedPromo.min_purchase) return 0
+    const raw = appliedPromo.discount_type === 'percentage'
+      ? Math.round(cartTotal * (appliedPromo.discount_value / 100))
+      : appliedPromo.discount_value
+    return Math.min(Math.max(raw, 0), cartTotal)
+  })()
   const finalTotal = cartTotal + shippingCost - discountAmount
 
   // Apply promo code
@@ -295,16 +289,21 @@ export default function CheckoutPage() {
       }
 
       const promotion = await response.json()
-      let discount = 0
-
-      if (promotion.discount_type === 'percentage') {
-        discount = Math.round(cartTotal * (promotion.discount_value / 100))
-      } else {
-        discount = promotion.discount_value
+      if (promotion.min_purchase && cartTotal < promotion.min_purchase) {
+        toast.error(`Este código requiere una compra mínima de ${formatPrice(promotion.min_purchase)}`)
+        return
       }
+      const discount = promotion.discount_type === 'percentage'
+        ? Math.round(cartTotal * (promotion.discount_value / 100))
+        : promotion.discount_value
 
-      setAppliedPromo({ code: promotion.code, discount })
-      toast.success(`Código aplicado: ${formatPrice(discount)} de descuento`)
+      setAppliedPromo({
+        code: promotion.code,
+        discount_type: promotion.discount_type,
+        discount_value: promotion.discount_value,
+        min_purchase: promotion.min_purchase ?? null,
+      })
+      toast.success(`Código aplicado: ${formatPrice(Math.min(discount, cartTotal))} de descuento`)
     } catch {
       toast.error('Error al aplicar el código')
     } finally {
@@ -326,27 +325,15 @@ export default function CheckoutPage() {
       return
     }
 
-    if (selectedPayment === 'CARD' && (!cardData.number || !cardData.expMonth || !cardData.expYear || !cardData.cvc)) {
-      toast.error('Por favor completa los datos de la tarjeta')
-      return
-    }
-
-    if (selectedPayment === 'NEQUI' && !nequiPhone) {
-      toast.error('Por favor ingresa tu número de Nequi')
-      return
-    }
-
     setIsLoading(true)
 
     try {
+      // Solo identificadores y cantidades: el precio lo pone el servidor
       const orderItems = items.map(item => ({
         productId: item.product.id,
-        productName: item.product.name,
-        productImage: item.product.images?.[0] || '/images/placeholder-hat.jpg',
-        price: item.product.price,
         quantity: item.quantity,
-        color: item.selectedColor,
-        size: item.selectedSize,
+        color: item.selectedColor || undefined,
+        size: item.selectedSize || undefined,
       }))
 
       const response = await fetch('/api/orders', {
@@ -356,8 +343,8 @@ export default function CheckoutPage() {
           items: orderItems,
           shippingInfo: {
             name: shippingData.fullName,
-            phone: shippingData.phone,
-            email: shippingData.email,
+            phone: normalizeDigits(shippingData.phone),
+            email: shippingData.email.trim(),
             address: shippingData.address,
             city: shippingData.city,
             state: selectedDepartment,
@@ -365,33 +352,25 @@ export default function CheckoutPage() {
             notes: '',
           },
           shippingMethod: selectedShipping,
-          shippingCost,
+          promoCode: appliedPromo?.code,
           paymentMethod: selectedPayment,
         }),
       })
 
-      const data = await response.json()
+      const data = await response.json().catch(() => ({}))
 
-      if (data.checkoutUrl) {
-        // Redirect to Wompi checkout
-        clearCart()
+      if (response.ok && data.checkoutUrl) {
+        // El carrito se vacía en la confirmación SOLO cuando el pago queda aprobado
         window.location.href = data.checkoutUrl
         return
       }
 
-      if (data.success) {
-        clearCart()
-        router.push(`/checkout/confirmacion?ref=${data.orderReference}`)
-      } else if (data.orderId) {
-        // Order created but payment failed - redirect to confirmation with pending status
-        clearCart()
-        router.push(`/checkout/confirmacion?ref=${data.orderReference}&status=pending`)
-      } else {
-        toast.error(data.error || 'Error al procesar el pedido')
+      if (response.status === 400 && appliedPromo && /descuento/i.test(data.error || '')) {
+        setAppliedPromo(null)
       }
-    } catch (error) {
-      console.error('Checkout error:', error)
-      toast.error('Error al procesar el pedido')
+      toast.error(data.error || 'Error al procesar el pedido. Intenta de nuevo.')
+    } catch {
+      toast.error('No pudimos conectar con el servidor. Revisa tu conexión e intenta de nuevo.')
     } finally {
       setIsLoading(false)
     }
@@ -915,94 +894,18 @@ export default function CheckoutPage() {
                       </div>
                     </RadioGroup>
 
-                    {/* Card Payment Form */}
-                    {selectedPayment === 'CARD' && (
+                    {/* Tarjeta / Nequi: los datos se ingresan SOLO en el checkout seguro de Wompi */}
+                    {(selectedPayment === 'CARD' || selectedPayment === 'NEQUI') && (
                       <motion.div
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
-                        className="p-5 rounded-none border border-steel/30 bg-carbon space-y-4 shadow-xl"
+                        className="p-5 rounded-none border border-steel/30 bg-graphite/40 shadow-xl"
                       >
-                        <div className="space-y-1">
-                          <Label className="text-[10px] font-semibold uppercase tracking-wider text-titanium">Número de Tarjeta</Label>
-                          <Input
-                            value={cardData.number}
-                            onChange={(e) => {
-                              const value = e.target.value.replace(/\D/g, '').substring(0, 16)
-                              const formatted = value.replace(/(\d{4})/g, '$1 ').trim()
-                              setCardData({ ...cardData, number: formatted })
-                            }}
-                            className="bg-graphite border-steel/30 rounded-none text-white-diamond focus:border-gold-action h-12 text-sm font-mono placeholder:text-steel"
-                            placeholder="1234 5678 9012 3456"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-[10px] font-semibold uppercase tracking-wider text-titanium">Nombre en la Tarjeta</Label>
-                          <Input
-                            value={cardData.holder}
-                            onChange={(e) => setCardData({ ...cardData, holder: e.target.value.toUpperCase() })}
-                            className="bg-graphite border-steel/30 rounded-none text-white-diamond focus:border-gold-action h-12 text-sm placeholder:text-steel"
-                            placeholder="JUAN PEREZ"
-                          />
-                        </div>
-                        <div className="grid grid-cols-3 gap-4">
-                          <div className="space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-titanium">Mes</Label>
-                            <Select value={cardData.expMonth} onValueChange={(value) => setCardData({ ...cardData, expMonth: value })}>
-                              <SelectTrigger className="bg-graphite border-steel/30 rounded-none text-white-diamond focus:border-gold-action h-12 text-xs font-semibold uppercase tracking-wider text-chrome">
-                                <SelectValue placeholder="MM" />
-                              </SelectTrigger>
-                              <SelectContent className="bg-graphite border-steel/30 rounded-none text-xs font-semibold">
-                                {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map((month) => (
-                                  <SelectItem key={month} value={month}>{month}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-titanium">Año</Label>
-                            <Select value={cardData.expYear} onValueChange={(value) => setCardData({ ...cardData, expYear: value })}>
-                              <SelectTrigger className="bg-graphite border-steel/30 rounded-none text-white-diamond focus:border-gold-action h-12 text-xs font-semibold uppercase tracking-wider text-chrome">
-                                <SelectValue placeholder="AA" />
-                              </SelectTrigger>
-                              <SelectContent className="bg-graphite border-steel/30 rounded-none text-xs font-semibold">
-                                {Array.from({ length: 10 }, (_, i) => String(new Date().getFullYear() + i).slice(-2)).map((year) => (
-                                  <SelectItem key={year} value={year}>{year}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-titanium">CVV</Label>
-                            <Input
-                              type="password"
-                              value={cardData.cvc}
-                              onChange={(e) => setCardData({ ...cardData, cvc: e.target.value.replace(/\D/g, '').substring(0, 4) })}
-                              className="bg-graphite border-steel/30 rounded-none text-white-diamond focus:border-gold-action h-12 text-sm placeholder:text-steel"
-                              placeholder="123"
-                            />
-                          </div>
-                        </div>
-                      </motion.div>
-                    )}
-
-                    {/* Nequi Form */}
-                    {selectedPayment === 'NEQUI' && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="p-5 rounded-none border border-steel/30 bg-carbon space-y-3 shadow-xl"
-                      >
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-titanium">Número de Nequi</Label>
-                        <Input
-                          value={nequiPhone}
-                          onChange={(e) => setNequiPhone(e.target.value.replace(/\D/g, '').substring(0, 10))}
-                          className="bg-graphite border-steel/30 rounded-none text-white-diamond focus:border-gold-action h-12 text-sm placeholder:text-steel"
-                          placeholder="3001234567"
-                        />
-                        <p className="text-[10px] text-titanium mt-2 font-light">
-                          Recibirás una notificación push en tu app Nequi para confirmar la transacción.
+                        <p className="text-xs text-titanium leading-relaxed font-light">
+                          {selectedPayment === 'CARD'
+                            ? 'Serás redirigido al checkout seguro de Wompi para ingresar los datos de tu tarjeta. Nosotros nunca vemos ni almacenamos tu tarjeta.'
+                            : 'Serás redirigido al checkout seguro de Wompi, donde ingresarás tu número Nequi y confirmarás el pago desde tu app.'}
                         </p>
                       </motion.div>
                     )}
@@ -1085,7 +988,7 @@ export default function CheckoutPage() {
                   {appliedPromo && (
                     <div className="flex justify-between text-xs text-gold-action">
                       <span>Descuento ({appliedPromo.code})</span>
-                      <span>-{formatPrice(appliedPromo.discount)}</span>
+                      <span>-{formatPrice(discountAmount)}</span>
                     </div>
                   )}
                 </div>

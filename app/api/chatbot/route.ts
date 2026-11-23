@@ -1,5 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { limitByIp } from '@/lib/rate-limit'
+
+const MAX_MESSAGE_LENGTH = 500
 
 // Helper function to format price
 function formatPrice(price: number) {
@@ -34,13 +37,21 @@ function findBestMatch(message: string, knowledge: { question: string; answer: s
 
 export async function POST(request: Request) {
   try {
-    const { message } = await request.json()
+    const limited = await limitByIp(request, 'chatbot:ip', 30, 60)
+    if (limited) return limited
+
+    const body = await request.json().catch(() => null)
+    const message = typeof body?.message === 'string' ? body.message.slice(0, MAX_MESSAGE_LENGTH) : ''
+    if (!message.trim()) {
+      return NextResponse.json({ response: '¿En qué te puedo ayudar? Escríbeme tu pregunta.' })
+    }
+
     const supabase = await createClient()
 
     // Get active chatbot knowledge
     const { data: knowledge } = await supabase
       .from('chatbot_knowledge')
-      .select('*')
+      .select('question, answer, keywords')
       .eq('active', true)
 
     const lowerMessage = message.toLowerCase()
@@ -75,8 +86,10 @@ export async function POST(request: Request) {
       // Fetch all products from DB
       const { data: products } = await supabase
         .from('products')
-        .select('*')
+        .select('name, price, featured, category, created_at')
         .gt('stock', 0)
+        .order('created_at', { ascending: true })
+        .limit(200)
 
       if (products && products.length > 0) {
         // Classify products
@@ -121,13 +134,14 @@ export async function POST(request: Request) {
       // Query products with active discounts in DB
       const { data: discountedProducts } = await supabase
         .from('products')
-        .select('*')
+        .select('name, price, original_price, is_promotion')
         .gt('stock', 0)
         .or('is_promotion.eq.true,original_price.gt.price')
+        .limit(50)
 
       if (discountedProducts && discountedProducts.length > 0) {
         const promoList = discountedProducts.slice(0, 4).map(p => {
-          const orig = p.original_price || p.originalPrice || p.price
+          const orig = p.original_price || p.price
           const savings = orig > p.price ? ` (Antes: ${formatPrice(orig)})` : ''
           return `- **${p.name}**: ${formatPrice(p.price)}${savings}`
         }).join('\n')
@@ -163,7 +177,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ response })
   } catch (error) {
-    console.error('[v0] Chatbot API error:', error)
+    console.error('[chatbot] error', { msg: (error as Error).message })
     return NextResponse.json({ 
       response: 'Lo siento, hubo un error procesando tu mensaje. Por favor intenta de nuevo o escríbele directamente a nuestro asesor al WhatsApp 3108999049.' 
     }, { status: 200 })

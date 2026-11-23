@@ -13,3 +13,11 @@ __v0_jsx-dev-runtime.ts
 node_modules
 .next/
 .DS_Store
+
+# Las credenciales viven en Vercel / .env.local, nunca en archivos versionados
+.env
+.env.*
+!.env.example
+
+# Artefactos locales de auditorías (bases de datos de prueba, logs)
+audit/

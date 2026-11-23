@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState, Suspense } from 'react'
+import { useEffect, useRef, useState, Suspense } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { CheckCircle, XCircle, Clock, Package, Truck, CreditCard, ArrowRight, Loader2 } from 'lucide-react'
 import { Navbar } from '@/components/navbar'
 import { Button } from '@/components/ui/button'
+import { useCartStore } from '@/lib/store'
 
 function formatPrice(price: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -45,37 +46,65 @@ interface OrderData {
 function ConfirmacionContent() {
   const searchParams = useSearchParams()
   const reference = searchParams.get('ref')
-  const status = searchParams.get('status')
-  
+  const clearCart = useCartStore((s) => s.clearCart)
+
   const [order, setOrder] = useState<OrderData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [pollingExhausted, setPollingExhausted] = useState(false)
+  const cartCleared = useRef(false)
 
+  // El estado SIEMPRE se lee del backend (que verifica con Wompi). Nunca del query param ?status=
   useEffect(() => {
-    if (reference) {
-      fetchOrder()
-    } else {
+    if (!reference) {
       setError('Referencia de orden no encontrada')
       setLoading(false)
+      return
+    }
+
+    let cancelled = false
+    let attempts = 0
+    const MAX_ATTEMPTS = 40 // ~2 minutos a 3 s
+    const wompiId = searchParams.get('id')
+
+    const fetchOrder = async () => {
+      try {
+        const url = `/api/orders/${encodeURIComponent(reference)}${wompiId ? `?wompi_id=${encodeURIComponent(wompiId)}` : ''}`
+        const response = await fetch(url, { cache: 'no-store' })
+        if (!response.ok) throw new Error('Orden no encontrada')
+        const data: OrderData = await response.json()
+        if (cancelled) return
+        setOrder(data)
+        setError(null)
+
+        if (data.status === 'pending') {
+          attempts += 1
+          if (attempts < MAX_ATTEMPTS) setTimeout(fetchOrder, 3000)
+          else setPollingExhausted(true)
+        }
+      } catch (err) {
+        if (cancelled) return
+        attempts += 1
+        if (attempts < 3) setTimeout(fetchOrder, 3000)
+        else setError(err instanceof Error ? err.message : 'Error al cargar la orden')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    fetchOrder()
+    return () => {
+      cancelled = true
     }
   }, [reference])
 
-  const fetchOrder = async () => {
-    try {
-      const wompiId = searchParams.get('id')
-      const url = `/api/orders/${reference}${wompiId ? `?wompi_id=${wompiId}` : ''}`
-      const response = await fetch(url)
-      if (!response.ok) {
-        throw new Error('Orden no encontrada')
-      }
-      const data = await response.json()
-      setOrder(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar la orden')
-    } finally {
-      setLoading(false)
+  const PAID_STATUSES = ['paid', 'processing', 'shipped', 'delivered']
+  useEffect(() => {
+    if (order && PAID_STATUSES.includes(order.status) && !cartCleared.current) {
+      cartCleared.current = true
+      clearCart()
     }
-  }
+  }, [order?.status])
 
   if (loading) {
     return (
@@ -109,10 +138,11 @@ function ConfirmacionContent() {
     )
   }
 
-  const orderStatus = order?.transactionStatus || order?.status || status
-  const isApproved = orderStatus === 'APPROVED' || orderStatus === 'paid'
-  const isPending = orderStatus === 'PENDING' || orderStatus === 'pending'
-  const isDeclined = orderStatus === 'DECLINED' || orderStatus === 'ERROR' || orderStatus === 'cancelled'
+  // Solo el estado en BD (confirmado por webhook/API de Wompi) decide lo que ve el cliente
+  const orderStatus = order?.status
+  const isApproved = !!orderStatus && PAID_STATUSES.includes(orderStatus)
+  const isPending = orderStatus === 'pending'
+  const isDeclined = orderStatus === 'cancelled'
 
   return (
     <main className="min-h-screen">
@@ -148,8 +178,9 @@ function ConfirmacionContent() {
 
             <p className="text-muted-foreground mb-2">
               {isApproved && 'Gracias por tu compra. Hemos enviado los detalles a tu email.'}
-              {isPending && 'Tu pedido esta siendo procesado. Te notificaremos cuando se confirme el pago.'}
-              {isDeclined && 'Hubo un problema con tu pago. Por favor intenta nuevamente.'}
+              {isPending && !pollingExhausted && 'Estamos confirmando tu pago con Wompi. Esto puede tardar unos segundos...'}
+              {isPending && pollingExhausted && 'Tu pago aún está en proceso (PSE y Nequi pueden tardar). Te notificaremos por correo cuando se confirme.'}
+              {isDeclined && 'Hubo un problema con tu pago. Tus productos siguen en el carrito para que lo intentes de nuevo.'}
             </p>
 
             {order && (
