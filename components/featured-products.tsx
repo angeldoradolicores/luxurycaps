@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { ArrowRight, Award } from 'lucide-react'
 import { type Product } from '@/lib/store'
 import { Button } from '@/components/ui/button'
-import { ProductCard } from '@/components/product-card'
+import { ProductCard, PRODUCT_GRID } from '@/components/product-card'
 import { useFeaturedProducts } from '@/lib/hooks/use-products'
 
 export function FeaturedProducts() {
@@ -16,7 +16,7 @@ export function FeaturedProducts() {
 
   // Skeleton loader for products
   const ProductSkeleton = () => (
-    <div className="animate-pulse space-y-4">
+    <div className="animate-pulse space-y-2 sm:space-y-4">
       <div className="aspect-square bg-graphite border border-steel/20 rounded-lg" />
       <div className="space-y-2">
         <div className="h-3 bg-steel rounded w-1/4" />
@@ -66,13 +66,13 @@ export function FeaturedProducts() {
 
         {/* Products Grid */}
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+          <div className={PRODUCT_GRID}>
             {[...Array(4)].map((_, i) => (
               <ProductSkeleton key={i} />
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+          <div className={PRODUCT_GRID}>
             {products.slice(0, 8).map((product, index) => (
               <ProductCard key={product.id} product={product} index={index} />
             ))}
