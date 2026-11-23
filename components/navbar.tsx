@@ -161,7 +161,7 @@ export function Navbar() {
                 className="flex flex-col"
               >
                 <span
-                  className="text-xl md:text-2xl font-black tracking-[0.22em] text-white-diamond uppercase"
+                  className="text-base sm:text-xl md:text-2xl font-black tracking-[0.22em] text-white-diamond uppercase whitespace-nowrap"
                   style={{ fontFamily: 'var(--font-cinzel), serif', letterSpacing: '0.22em' }}
                 >
                   URBAN CROWN
@@ -204,7 +204,7 @@ export function Navbar() {
             </div>
 
             {/* ── Actions ─────────────────────────── */}
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1 sm:gap-4 shrink-0">
 
               {user ? (
                 <div className="flex items-center gap-3">
@@ -236,11 +236,13 @@ export function Navbar() {
                   <motion.button
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
-                    className="flex items-center gap-2 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.15em] border border-steel text-titanium hover:border-chrome hover:text-white-diamond rounded-sm transition-all duration-300"
+                    aria-label="Ingresar"
+                    className="flex items-center gap-2 p-2 sm:px-4 sm:py-2 text-[10px] font-bold uppercase tracking-[0.15em] sm:border border-steel text-titanium hover:border-chrome hover:text-white-diamond rounded-sm transition-all duration-300"
                     style={{ fontFamily: 'var(--font-sans)', letterSpacing: '0.15em' }}
                   >
-                    <User className="w-3.5 h-3.5" />
-                    Ingresar
+                    <User className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+                    {/* En celular sólo el ícono: el texto empujaba el menú fuera de la pantalla */}
+                    <span className="hidden sm:inline">Ingresar</span>
                   </motion.button>
                 </Link>
               )}
@@ -311,6 +313,23 @@ export function Navbar() {
                 <Menu className="w-5 h-5" />
               </Button>
             </div>
+          </nav>
+
+          {/* ── Secciones en celular: fila horizontal desplazable bajo la barra ── */}
+          <nav
+            aria-label="Secciones"
+            className="lg:hidden -mx-4 mt-3 px-4 pt-3 flex gap-5 overflow-x-auto whitespace-nowrap border-t border-steel/30 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {navLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.15em] text-titanium hover:text-white-diamond transition-colors duration-300"
+                style={{ fontFamily: 'var(--font-sans)', letterSpacing: '0.15em' }}
+              >
+                {link.label}
+              </Link>
+            ))}
           </nav>
         </div>
       </motion.header>
