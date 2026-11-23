@@ -124,7 +124,7 @@ export function FeaturesSection() {
           />
         </motion.div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-px"
+        <div className="flex md:grid md:grid-cols-2 lg:grid-cols-4 gap-px overflow-x-auto snap-x snap-mandatory -mx-4 px-4 md:mx-0 md:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           style={{ border: '1px solid #1a1a1a' }}
         >
           {features.map((feature, index) => (
@@ -134,10 +134,10 @@ export function FeaturesSection() {
               animate={isInView ? 'visible' : 'hidden'}
               custom={index + 1}
               variants={fadeUp}
-              className="group"
+              className="group min-w-[78%] shrink-0 snap-start md:min-w-0 md:shrink"
             >
               <div
-                className="h-full p-8 transition-all duration-500"
+                className="h-full p-6 sm:p-8 transition-all duration-500"
                 style={{
                   background: '#0D0D0D',
                   borderRight: index < 3 ? '1px solid #1a1a1a' : 'none',
@@ -221,7 +221,7 @@ export function TestimonialsSection() {
           />
         </motion.div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-px" style={{ border: '1px solid #1a1a1a' }}>
+        <div className="flex md:grid md:grid-cols-3 gap-px overflow-x-auto snap-x snap-mandatory -mx-4 px-4 md:mx-0 md:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" style={{ border: '1px solid #1a1a1a' }}>
           {testimonials.map((testimonial, index) => (
             <motion.div
               key={testimonial.name}
@@ -229,9 +229,10 @@ export function TestimonialsSection() {
               animate={isInView ? 'visible' : 'hidden'}
               custom={index + 1}
               variants={fadeUp}
+              className="min-w-[80%] shrink-0 snap-start md:min-w-0 md:shrink"
             >
               <div
-                className="h-full p-8 transition-all duration-500"
+                className="h-full p-6 sm:p-8 transition-all duration-500"
                 style={{
                   background: '#0D0D0D',
                   borderRight: index < 2 ? '1px solid #1a1a1a' : 'none',
@@ -356,7 +357,7 @@ export function CuratedSection() {
             >
               Solo colecciones hechas para quienes exigen estilo único. En nuestra casa no hay piezas normales: cada gorra es una declaración de exclusividad, actitud y trabajo artesanal.
             </motion.p>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4">
               <motion.div
                 initial={{ opacity: 0, y: 16 }}
                 animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 16 }}
@@ -377,7 +378,7 @@ export function CuratedSection() {
               </motion.div>
             </div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
             {curatedItems.map((item, index) => (
               <motion.div
                 key={item.title}

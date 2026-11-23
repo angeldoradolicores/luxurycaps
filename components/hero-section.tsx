@@ -72,7 +72,7 @@ export function HeroSection() {
   return (
     <section
       ref={containerRef}
-      className="relative min-h-screen flex items-center justify-center overflow-hidden noise"
+      className="relative min-h-screen flex items-center justify-center overflow-hidden noise pt-32 pb-12 md:pt-0 md:pb-0"
       style={{ backgroundColor: '#050505' }}
     >
       {/* ── Fondo: textura satinada + destellos ────────────── */}
@@ -231,13 +231,13 @@ export function HeroSection() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.9 }}
-            className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-20"
+            className="flex flex-row items-center justify-center gap-3 sm:gap-4 w-full max-w-md sm:max-w-none mx-auto mb-12 md:mb-20"
           >
-            <Link href="/catalogo">
+            <Link href="/catalogo" className="flex flex-1 sm:flex-none">
               <motion.button
                 whileHover={{ scale: 1.03, y: -2 }}
                 whileTap={{ scale: 0.97 }}
-                className="group flex items-center gap-3 px-10 py-4 text-xs font-bold uppercase transition-all duration-300"
+                className="group flex flex-1 sm:flex-none items-center justify-center gap-2 sm:gap-3 px-3 sm:px-10 py-3.5 sm:py-4 text-[10px] sm:text-xs font-bold uppercase whitespace-nowrap transition-all duration-300"
                 style={{
                   fontFamily: 'var(--font-sans)',
                   letterSpacing: '0.2em',
@@ -251,11 +251,11 @@ export function HeroSection() {
               </motion.button>
             </Link>
 
-            <Link href="/promociones">
+            <Link href="/promociones" className="flex flex-1 sm:flex-none">
               <motion.button
                 whileHover={{ scale: 1.03, y: -2 }}
                 whileTap={{ scale: 0.97 }}
-                className="flex items-center gap-3 px-10 py-4 text-xs font-bold uppercase transition-all duration-300"
+                className="flex flex-1 sm:flex-none items-center justify-center gap-2 sm:gap-3 px-3 sm:px-10 py-3.5 sm:py-4 text-[10px] sm:text-xs font-bold uppercase whitespace-nowrap transition-all duration-300"
                 style={{
                   fontFamily: 'var(--font-sans)',
                   letterSpacing: '0.2em',
@@ -295,7 +295,7 @@ export function HeroSection() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 3, delay: 1.1 }}
-            className="grid grid-cols-2 md:grid-cols-4 gap-px"
+            className="grid grid-cols-3 gap-px"
             style={{ border: '1px solid #1a1a1a' }}
           >
             {[
@@ -308,11 +308,11 @@ export function HeroSection() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 2.9 + index * 0.1 }}
-                className="flex flex-col items-center justify-center py-8 px-4"
-                style={{ background: '#0D0D0D', borderRight: index < 3 ? '1px solid #1a1a1a' : 'none' }}
+                className="flex flex-col items-center justify-center py-5 px-2 sm:py-8 sm:px-4"
+                style={{ background: '#0D0D0D', borderRight: index < 2 ? '1px solid #1a1a1a' : 'none' }}
               >
                 <span
-                  className="block text-2xl md:text-3xl font-black mb-1"
+                  className="block text-xl sm:text-2xl md:text-3xl font-black mb-1"
                   style={{
                     fontFamily: 'var(--font-cinzel)',
                     background: 'linear-gradient(135deg, #C9CDD2, #DDE8F5)',
@@ -324,8 +324,8 @@ export function HeroSection() {
                   {stat.value}
                 </span>
                 <span
-                  className="text-[10px] uppercase tracking-[0.25em]"
-                  style={{ fontFamily: 'var(--font-sans)', color: '#BFCEDF', letterSpacing: '0.25em' }}
+                  className="text-[9px] sm:text-[10px] uppercase tracking-[0.12em] sm:tracking-[0.25em]"
+                  style={{ fontFamily: 'var(--font-sans)', color: '#BFCEDF' }}
                 >
                   {stat.label}
                 </span>
