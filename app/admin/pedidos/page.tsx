@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
+import { RecoverOrder } from '@/components/admin/recover-order'
+import { allowedOrderTransitions } from '@/lib/order-transitions'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
@@ -132,12 +134,22 @@ export default function PedidosPage() {
     try {
       const res = await fetch('/api/admin/orders')
       const data = await res.json()
-      if (data.orders) setOrders(data.orders)
+      if (data.orders) {
+        setOrders(data.orders)
+        return data.orders as Order[]
+      }
     } catch (e) {
       console.error(e)
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleRecovered = async () => {
+    const refreshed = await fetchOrders()
+    setSelectedOrder(prev => refreshed?.find(order => order.id === prev?.id) ?? null)
+    setShowShippingModal(false)
+    setResolveNote('')
   }
 
   const fetchOrderHistory = async (orderId: string) => {
@@ -422,7 +434,8 @@ export default function PedidosPage() {
                   <p className="whitespace-pre-line">{selectedOrder.payment_issue}</p>
                   <p className="mt-2 text-xs text-red-200/80">
                     Mientras la alerta esté activa no se puede preparar, enviar ni entregar este pedido.
-                    Revisa la transacción en el panel de Wompi y, cuando lo resuelvas (reembolso, conciliación), descríbelo aquí.
+                    Para despachar un pedido cancelado con pago aprobado, usa la recuperación con pago verificado.
+                    Si ya reembolsaste o cerraste la conciliación, registra el resultado aquí. Cerrar la alerta no reactiva el pedido.
                   </p>
                   <div className="mt-3 flex flex-col sm:flex-row gap-2">
                     <Input
@@ -438,10 +451,13 @@ export default function PedidosPage() {
                       disabled={resolving || resolveNote.trim().length < 5}
                       onClick={() => resolvePaymentIssue(selectedOrder.id)}
                     >
-                      {resolving ? 'Guardando…' : 'Marcar como resuelta'}
+                      {resolving ? 'Guardando…' : 'Cerrar alerta por conciliación'}
                     </Button>
                   </div>
                 </div>
+              )}
+              {selectedOrder.status === 'cancelled' && (
+                <RecoverOrder key={selectedOrder.id} order={selectedOrder} onRecovered={handleRecovered} />
               )}
               {/* Status */}
               <div className="flex items-center justify-between p-4 rounded-xl bg-secondary/30">
@@ -570,6 +586,9 @@ export default function PedidosPage() {
           </DialogHeader>
 
           <div className="space-y-5 pt-2">
+            {selectedOrder?.status === 'cancelled' ? (
+              <RecoverOrder key={selectedOrder.id} order={selectedOrder} onRecovered={handleRecovered} />
+            ) : <>
             {/* Alert about notification */}
             <div className="flex items-start gap-3 p-3 rounded-xl bg-primary/10 border border-primary/20">
               <Bell className="w-4 h-4 text-primary shrink-0 mt-0.5" />
@@ -588,7 +607,9 @@ export default function PedidosPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(statusConfig).map(([k, v]) => (
+                  {Object.entries(statusConfig).filter(([k]) => k === selectedOrder?.status ||
+                    allowedOrderTransitions(selectedOrder?.status ?? '', selectedOrder?.payment_issue).includes(k)
+                  ).map(([k, v]) => (
                     <SelectItem key={k} value={k}>
                       <span className="flex items-center gap-2">
                         <v.icon className="w-4 h-4" /> {v.label}
@@ -669,6 +690,7 @@ export default function PedidosPage() {
                 )}
               </Button>
             </div>
+            </>}
           </div>
         </DialogContent>
       </Dialog>
