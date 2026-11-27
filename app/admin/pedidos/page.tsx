@@ -248,7 +248,7 @@ export default function PedidosPage() {
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant={statusFilter==='all' ? undefined : 'ghost'} onClick={() => setStatusFilter('all')}>Todos</Button>
           <Button size="sm" variant={statusFilter==='pending' ? undefined : 'ghost'} onClick={() => setStatusFilter('pending')}>Pendientes</Button>
           <Button size="sm" variant={statusFilter==='paid' ? undefined : 'ghost'} onClick={() => setStatusFilter('paid')}>Pagados</Button>
@@ -275,8 +275,62 @@ export default function PedidosPage() {
         </Select>
       </div>
 
-      {/* Table */}
-      <div className="rounded-2xl bg-card border border-border/50 overflow-hidden">
+      {/* Móvil: tarjetas (sin scroll horizontal) */}
+      <div className="md:hidden space-y-3">
+        {filteredOrders.map((order) => {
+          const st = statusConfig[order.status as keyof typeof statusConfig] || statusConfig.pending
+          return (
+            <div key={order.id} className={`p-4 rounded-xl bg-card border ${order.payment_issue ? 'border-red-500/50' : 'border-border/50'}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-mono font-semibold text-primary text-sm break-all">#{order.order_number}</p>
+                  <p className="text-xs text-muted-foreground">{formatDate(order.created_at)}</p>
+                </div>
+                <span className={`shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${st.color}`}>
+                  <st.icon className="w-3 h-3" />{st.label}
+                </span>
+              </div>
+              {order.payment_issue && (
+                <p className="mt-2 text-xs font-semibold text-red-400">⚠️ Alerta de pago: revisar antes de despachar</p>
+              )}
+              <div className="mt-3 text-sm min-w-0">
+                <p className="font-medium truncate">{order.shipping_address?.name}</p>
+                <p className="text-xs text-muted-foreground truncate">{order.shipping_address?.phone} · {order.shipping_address?.city}</p>
+              </div>
+              <div className="mt-2 text-xs text-muted-foreground">
+                {order.items?.slice(0, 2).map((item, ii) => (
+                  <p key={ii} className="truncate">{item.quantity}x {item.product_name}</p>
+                ))}
+                {(order.items?.length || 0) > 2 && <p>+{order.items.length - 2} más</p>}
+              </div>
+              {order.tracking_number && (
+                <p className="mt-1 text-xs text-purple-400 truncate">📦 {order.tracking_number}</p>
+              )}
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <p className="font-bold text-primary">{formatPrice(order.total)}</p>
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="sm" className="h-9" onClick={() => { setSelectedOrder(order); setShowShippingModal(false) }} aria-label="Ver detalle">
+                    <Eye className="w-4 h-4" />
+                  </Button>
+                  <Button size="sm" className="h-9 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20"
+                    onClick={() => openShippingModal(order)}>
+                    <Truck className="w-3.5 h-3.5 mr-1" /> Gestionar
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+        {filteredOrders.length === 0 && (
+          <div className="text-center py-12 rounded-xl bg-card border border-border/50">
+            <Package className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
+            <p className="text-muted-foreground">No se encontraron pedidos</p>
+          </div>
+        )}
+      </div>
+
+      {/* Tabla — tablet/escritorio */}
+      <div className="hidden md:block rounded-2xl bg-card border border-border/50 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -303,7 +357,7 @@ export default function PedidosPage() {
                         <p className="text-xs text-purple-400 mt-0.5">📦 {order.tracking_number}</p>
                       )}
                       {order.payment_issue && (
-                        <p className="text-xs font-semibold text-red-400 mt-0.5">⚠️ Pago aprobado sobre pedido cancelado</p>
+                        <p className="text-xs font-semibold text-red-400 mt-0.5">⚠️ Alerta de pago: revisar</p>
                       )}
                     </td>
                     <td className="p-4 hidden md:table-cell">
@@ -356,7 +410,7 @@ export default function PedidosPage() {
 
       {/* Order Detail Dialog */}
       <Dialog open={!!selectedOrder && !showShippingModal} onOpenChange={() => setSelectedOrder(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display text-xl">Pedido #{selectedOrder?.order_number}</DialogTitle>
           </DialogHeader>
@@ -507,7 +561,7 @@ export default function PedidosPage() {
 
       {/* Shipping Management Modal */}
       <Dialog open={showShippingModal} onOpenChange={() => setShowShippingModal(false)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="sm:max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display text-xl flex items-center gap-2">
               <Truck className="w-5 h-5 text-primary" />

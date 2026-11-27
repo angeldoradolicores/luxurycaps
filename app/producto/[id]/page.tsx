@@ -381,10 +381,10 @@ export default function ProductoPage({ params }: { params: Promise<{ id: string 
               transition={{ delay: 0.2, duration: 0.8 }}
               className="mt-28 border-t border-steel/10 pt-16"
             >
-              <h2 className="text-2xl font-display font-bold mb-10 text-white-diamond uppercase tracking-wider">
+              <h2 className="text-xl sm:text-2xl font-display font-bold mb-6 sm:mb-10 text-white-diamond uppercase tracking-wider">
                 PRODUCTOS <span className="text-gradient-gold">RELACIONADOS</span>
               </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+              <div className="grid grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-4 lg:gap-8">
                 {relatedProducts.map((relatedProduct) => (
                   <Link key={relatedProduct.id} href={`/producto/${relatedProduct.id}`}>
                     <div className="group bg-carbon border border-steel/30 rounded-none overflow-hidden shadow-lg transition-all hover:border-gold-action/25">
@@ -393,14 +393,15 @@ export default function ProductoPage({ params }: { params: Promise<{ id: string 
                           src={relatedProduct.images?.[0] || '/images/placeholder-hat.jpg'}
                           alt={relatedProduct.name}
                           fill
+                          sizes="(max-width: 1024px) 34vw, 25vw"
                           className="object-cover transition-transform duration-500 group-hover:scale-105"
                         />
                       </div>
-                      <div className="p-4">
-                        <h3 className="font-semibold text-sm text-white-diamond group-hover:text-gold-action transition-colors truncate">
+                      <div className="p-2 sm:p-4">
+                        <h3 className="font-semibold text-[10px] sm:text-sm leading-tight text-white-diamond group-hover:text-gold-action transition-colors line-clamp-2 sm:truncate">
                           {relatedProduct.name}
                         </h3>
-                        <span className="text-xs font-semibold text-gold-action mt-2 inline-block">
+                        <span className="text-[11px] sm:text-xs font-semibold text-gold-action mt-1 sm:mt-2 inline-block">
                           {formatPrice(relatedProduct.price)}
                         </span>
                       </div>

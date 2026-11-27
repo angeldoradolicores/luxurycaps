@@ -253,7 +253,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       </AnimatePresence>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-h-screen overflow-hidden">
+      <div className="flex-1 flex flex-col min-h-screen min-w-0 overflow-hidden">
         {/* Top Header */}
         <header className="h-16 border-b border-border bg-card flex items-center justify-between px-4 lg:px-6">
           <div className="flex items-center gap-4">
@@ -265,6 +265,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             >
               <Menu className="w-5 h-5" />
             </Button>
+            <span className="lg:hidden text-sm font-semibold truncate">
+              {sidebarLinks.find(l => pathname.startsWith(l.href))?.label || 'Admin'}
+            </span>
             <div className="hidden md:flex relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
@@ -310,7 +313,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 lg:p-6">
           {children}
         </main>
       </div>

@@ -230,7 +230,7 @@ export default function ProductosPage() {
             Gestiona tu catalogo de gorras ({products.length} productos)
           </p>
         </div>
-        <Button onClick={handleAddProduct} className="btn-luxury">
+        <Button onClick={handleAddProduct} className="btn-luxury w-full sm:w-auto">
           <Plus className="w-4 h-4 mr-2" />
           Agregar Producto
         </Button>
@@ -261,8 +261,83 @@ export default function ProductosPage() {
         </Select>
       </div>
 
-      {/* Products Table */}
-      <div className="rounded-2xl bg-card border border-border/50 overflow-hidden">
+      {/* Products — móvil: tarjetas (sin scroll horizontal) */}
+      <div className="md:hidden space-y-3">
+        {filteredProducts.map((product) => (
+          <div key={product.id} className="flex gap-3 p-3 rounded-xl bg-card border border-border/50">
+            <div className="relative w-20 h-20 rounded-lg overflow-hidden shrink-0 bg-secondary">
+              {product.images?.[0] ? (
+                <Image src={product.images[0]} alt={product.name} fill sizes="80px" className="object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <ImageIcon className="w-5 h-5 text-muted-foreground" />
+                </div>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between gap-2">
+                <p className="font-medium text-sm leading-snug line-clamp-2 break-words">{product.name}</p>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 -mt-1 -mr-1 shrink-0" aria-label="Acciones">
+                      <MoreVertical className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => handleEditProduct(product)}>
+                      <Edit className="w-4 h-4 mr-2" />
+                      Editar
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <a href={`/producto/${product.slug}`} target="_blank" rel="noreferrer">
+                        <Eye className="w-4 h-4 mr-2" />
+                        Ver en tienda
+                      </a>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="text-destructive" onClick={() => setDeleteProduct(product)}>
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Eliminar
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <p className="text-xs text-muted-foreground truncate">{product.category}</p>
+              <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2">
+                <span className="font-semibold text-sm text-primary">{formatPrice(product.price)}</span>
+                {product.original_price && (
+                  <span className="text-xs text-muted-foreground line-through">{formatPrice(product.original_price)}</span>
+                )}
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <span className={`text-xs font-medium ${product.stock < 10 ? 'text-destructive' : 'text-muted-foreground'}`}>
+                  Stock: {product.stock}
+                </span>
+                {product.featured && <Badge className="bg-primary/20 text-primary text-[10px] px-1.5 py-0">Destacado</Badge>}
+                {product.is_promotion && <Badge className="bg-destructive/20 text-destructive text-[10px] px-1.5 py-0">Oferta</Badge>}
+                {product.videos?.length > 0 && (
+                  <Badge className="bg-blue-500/20 text-blue-500 text-[10px] px-1.5 py-0">
+                    <Video className="w-3 h-3 mr-0.5" />Video
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+        {filteredProducts.length === 0 && (
+          <div className="text-center py-12 rounded-xl bg-card border border-border/50">
+            <p className="text-muted-foreground">No se encontraron productos</p>
+            {products.length === 0 && (
+              <Button onClick={handleAddProduct} className="mt-4 btn-luxury">
+                <Plus className="w-4 h-4 mr-2" />
+                Agregar tu primer producto
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Products Table — tablet/escritorio */}
+      <div className="hidden md:block rounded-2xl bg-card border border-border/50 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -658,7 +733,7 @@ function ProductModal(props: {
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl font-display">
             {product ? 'Editar Producto' : 'Agregar Producto'}

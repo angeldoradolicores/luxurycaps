@@ -6,7 +6,7 @@ import { Heart, ShoppingBag, ArrowLeft, Loader2 } from 'lucide-react'
 import { Navbar } from '@/components/navbar'
 import { Footer } from '@/components/footer'
 import { Button } from '@/components/ui/button'
-import { ProductCard } from '@/components/product-card'
+import { ProductCard, PRODUCT_GRID } from '@/components/product-card'
 import SparklesUI from '@/components/sparkles'
 import { useFavoritesStore, useAuthStore, useCartStore } from '@/lib/store'
 import { useRouter } from 'next/navigation'
@@ -15,19 +15,13 @@ import { toast } from 'sonner'
 export default function FavoritosPage() {
   const router = useRouter()
   const { items: favoriteProducts, toggleFavorite, clearFavorites } = useFavoritesStore()
-  const { user, isInitialized } = useAuthStore()
+  const { isInitialized } = useAuthStore()
   const { addItem } = useCartStore()
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    if (isInitialized) {
-      if (!user) {
-        router.push('/auth/login?redirect=/favoritos')
-      } else {
-        setIsLoading(false)
-      }
-    }
-  }, [isInitialized, user, router])
+    if (isInitialized) setIsLoading(false)
+  }, [isInitialized])
 
   const handleAddAllToCart = () => {
     if (favoriteProducts.length === 0) {
@@ -147,7 +141,7 @@ export default function FavoritosPage() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ staggerChildren: 0.05 }}
-                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+                className={PRODUCT_GRID}
               >
                 <AnimatePresence>
                   {favoriteProducts.map((product, idx) => (

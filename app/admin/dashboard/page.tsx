@@ -139,11 +139,11 @@ export default function DashboardPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
         {cards.map((card, i) => (
           <motion.div key={card.label} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.08 }}
-            className="p-5 rounded-2xl bg-card border border-border/50 hover:border-primary/20 transition-colors">
+            className={`p-4 sm:p-5 rounded-2xl bg-card border border-border/50 hover:border-primary/20 transition-colors min-w-0 ${i === cards.length - 1 && cards.length % 2 === 1 ? 'col-span-2 lg:col-span-1' : ''}`}>
             <div className="flex items-start justify-between mb-3">
               <div className={`p-2.5 rounded-xl ${card.bg}`}>
                 <card.icon className={`w-5 h-5 ${card.color}`} />
@@ -155,7 +155,7 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
-            <p className="text-xl font-bold leading-tight">{card.value}</p>
+            <p className="text-lg sm:text-xl font-bold leading-tight break-words">{card.value}</p>
             <p className="text-xs text-muted-foreground mt-1">{card.label}</p>
             <p className="text-xs text-muted-foreground/60 mt-0.5">{card.sub}</p>
           </motion.div>
@@ -167,7 +167,7 @@ export default function DashboardPage() {
         {/* Monthly Sales Chart */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="lg:col-span-2 p-6 rounded-2xl bg-card border border-border/50">
+          className="lg:col-span-2 p-4 sm:p-6 rounded-2xl bg-card border border-border/50">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
             <div>
               <h3 className="font-semibold">Ventas {timeframeLabel}</h3>
@@ -211,8 +211,8 @@ export default function DashboardPage() {
         {/* Category Pie */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
-          className="p-6 rounded-2xl bg-card border border-border/50">
-          <h3 className="font-semibold mb-5">Productos por Categoría</h3>
+          className="p-4 sm:p-6 rounded-2xl bg-card border border-border/50">
+          <h3 className="font-semibold mb-5">Ventas por Categoría</h3>
           <div className="h-[160px]">
             {salesByCategory.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
@@ -250,19 +250,19 @@ export default function DashboardPage() {
         {/* Recent Orders */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.6 }}
-          className="p-6 rounded-2xl bg-card border border-border/50">
+          className="p-4 sm:p-6 rounded-2xl bg-card border border-border/50">
           <div className="flex items-center justify-between mb-5">
             <h3 className="font-semibold">Pedidos Recientes</h3>
             <Link href="/admin/pedidos" className="text-sm text-primary hover:underline">Ver todos →</Link>
           </div>
           <div className="space-y-3">
             {recentOrders.length > 0 ? recentOrders.map((order: any) => (
-              <div key={order.id} className="flex items-center justify-between p-3 rounded-xl bg-secondary/30 hover:bg-secondary/50 transition-colors">
-                <div>
-                  <p className="font-mono text-sm font-semibold text-primary">#{order.reference}</p>
-                  <p className="text-xs text-muted-foreground">{order.customer_name}</p>
+              <div key={order.id} className="flex items-center justify-between gap-2 p-3 rounded-xl bg-secondary/30 hover:bg-secondary/50 transition-colors">
+                <div className="min-w-0">
+                  <p className="font-mono text-xs sm:text-sm font-semibold text-primary truncate">#{order.reference}</p>
+                  <p className="text-xs text-muted-foreground truncate">{order.customer_name}</p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1 sm:gap-3 shrink-0">
                   <p className="text-sm font-bold">{formatPrice(order.total)}</p>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor[order.status] || 'bg-secondary text-muted-foreground'}`}>
                     {statusLabel[order.status] || order.status}
@@ -278,7 +278,7 @@ export default function DashboardPage() {
         {/* Top Products */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.7 }}
-          className="p-6 rounded-2xl bg-card border border-border/50">
+          className="p-4 sm:p-6 rounded-2xl bg-card border border-border/50">
           <div className="flex items-center justify-between mb-5">
             <h3 className="font-semibold">Más Vendidos</h3>
             <Link href="/admin/productos" className="text-sm text-primary hover:underline">Ver todos →</Link>

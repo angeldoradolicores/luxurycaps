@@ -4,7 +4,6 @@ import { motion } from 'framer-motion'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { ShoppingBag, Heart, Eye } from 'lucide-react'
-import SparklesUI from './sparkles'
 import { useCartStore, useFavoritesStore } from '@/lib/store'
 import { toast } from 'sonner'
 import { useState } from 'react'
@@ -41,33 +40,11 @@ function formatPrice(price: number) {
   }).format(price)
 }
 
-// Badge metálico
-function MetalBadge({ text, variant = 'gold' }: { text: string; variant?: 'gold' | 'chrome' | 'crimson' }) {
-  const styles = {
-    gold: {
-      background: 'linear-gradient(135deg, rgba(221,232,245,0.18), rgba(201,205,210,0.12))',
-      border: '1px solid rgba(221,232,245,0.25)',
-      color: '#DDE8F5',
-    },
-    chrome: {
-      background: 'linear-gradient(135deg, rgba(192,192,192,0.1), rgba(139,139,139,0.08))',
-      border: '1px solid rgba(192,192,192,0.3)',
-      color: '#C0C0C0',
-    },
-    crimson: {
-      background: 'linear-gradient(135deg, rgba(180,30,30,0.15), rgba(150,20,20,0.1))',
-      border: '1px solid rgba(200,50,50,0.4)',
-      color: '#F87171',
-    },
-  }
+// Una sola etiqueta funcional, con acabado negro perlado.
+function MetalBadge({ text }: { text: string }) {
   return (
-    <span
-      className="inline-block px-1.5 py-0.5 text-[7px] tracking-[0.08em] sm:px-2.5 sm:py-1 sm:text-[9px] sm:tracking-[0.18em] font-bold uppercase whitespace-nowrap"
-      style={{
-        fontFamily: 'var(--font-sans)',
-        ...styles[variant],
-      }}
-    >
+    <span className="inline-block rounded-sm px-2 py-1 text-[10px] sm:text-xs font-semibold tracking-wide text-slate-100 border border-white/20 shadow-md"
+      style={{ background: 'linear-gradient(135deg, #34373d 0%, #17191d 46%, #08090b 100%)' }}>
       {text}
     </span>
   )
@@ -126,25 +103,24 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
         <div
           className="relative overflow-hidden transition-all duration-500"
           style={{
-            background: '#0D0D0D',
-            border: product.featured || product.is_promotion ? '1px solid rgba(200,164,77,0.35)' : (isHovered ? '1px solid rgba(192,192,192,0.25)' : '1px solid #262626'),
-            boxShadow: product.featured || product.is_promotion
-              ? '0 28px 68px rgba(200,164,77,0.06), 0 6px 20px rgba(0,0,0,0.6)'
-              : isHovered
-              ? '0 20px 48px rgba(0,0,0,0.75), 0 0 0 1px rgba(221,232,245,0.1)'
-              : '0 4px 16px rgba(0,0,0,0.4)',
+            background: 'radial-gradient(ellipse at 12% 0%, rgba(181,191,207,0.14), transparent 55%), linear-gradient(145deg, #202226 0%, #101114 46%, #08090b 100%)',
+            border: isHovered ? '1px solid rgba(210,219,233,0.38)' : '1px solid rgba(184,194,210,0.18)',
+            borderRadius: '12px',
+            boxShadow: isHovered
+              ? 'inset 0 1px 0 rgba(255,255,255,0.12), 0 20px 48px rgba(0,0,0,0.55)'
+              : 'inset 0 1px 0 rgba(255,255,255,0.07), 0 8px 24px rgba(0,0,0,0.35)',
             transform: isHovered ? 'translateY(-6px)' : 'translateY(0)',
           }}
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
         >
           {/* Image Container */}
-            <div className="relative aspect-square overflow-hidden" style={{ background: '#171717' }}>
+            <div className="relative aspect-square overflow-hidden" style={{ background: 'linear-gradient(135deg, #292c32, #111215 65%, #08090b)' }}>
             <Image
               src={(product.images || []).find(Boolean) || '/images/placeholder-hat.jpg'}
               alt={product.name}
               fill
-              sizes="(max-width: 1024px) 34vw, 25vw"
+              sizes="(max-width: 767px) 50vw, (max-width: 1023px) 34vw, 25vw"
               className="object-cover transition-transform duration-700"
               style={{
                 transform: isHovered ? 'scale(1.07)' : 'scale(1)',
@@ -161,9 +137,6 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
               }}
             />
 
-            {/* Sparkles + shimmer overlay */}
-            <SparklesUI extra={isHovered ? 2 : 0} />
-            <div className="reflect-shimmer" />
 
             {/* Reflejo satinado superior */}
             <div
@@ -175,21 +148,13 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
               }}
             />
 
-            {/* Badges */}
-            {/* En móvil sólo la primera etiqueta (las demás se ocultan con [&>*:nth-child(n+2)]) */}
-            <div className="absolute top-1.5 left-1.5 sm:top-3 sm:left-3 flex flex-col items-start gap-1 sm:gap-1.5 [&>*:nth-child(n+2)]:hidden sm:[&>*:nth-child(n+2)]:inline-block">
-              {product.stock === 0 && (
-                <MetalBadge text="Agotado" variant="chrome" />
-              )}
-              {product.is_promotion && discount > 0 && (
-                <MetalBadge text={`-${discount}%`} variant="crimson" />
-              )}
-              {product.featured && product.stock > 0 && (
-                <MetalBadge text="Exclusivo" variant="gold" />
-              )}
-              {product.stock > 0 && product.stock < 5 && (
-                <MetalBadge text={`Últimas ${product.stock}`} variant="crimson" />
-              )}
+            {/* Disponibilidad o descuento, sin etiquetas repetidas */}
+            <div className="absolute top-2 left-2 sm:top-3 sm:left-3">
+              {product.stock === 0 ? (
+                <MetalBadge text="Agotado" />
+              ) : product.is_promotion && discount > 0 ? (
+                <MetalBadge text={`-${discount}%`} />
+              ) : null}
             </div>
 
             {/* Quick Actions (derecha) */}
@@ -199,6 +164,7 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
             >
               <button
                 onClick={handleWishlist}
+                aria-label={isWishlisted ? 'Quitar de favoritos' : 'Agregar a favoritos'}
                 className="w-9 h-9 flex items-center justify-center transition-all duration-200"
                 style={{
                   background: 'rgba(13,13,13,0.85)',
@@ -210,6 +176,7 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
                 <Heart className="w-4 h-4" style={{ fill: isWishlisted ? 'currentColor' : 'none' }} />
               </button>
               <button
+                aria-label="Ver producto"
                 className="w-9 h-9 flex items-center justify-center transition-all duration-200"
                 style={{
                   background: 'rgba(13,13,13,0.85)',
@@ -231,7 +198,7 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
             <button
               onClick={handleWishlist}
               aria-label={isWishlisted ? 'Quitar de favoritos' : 'Agregar a favoritos'}
-              className="sm:hidden absolute top-1.5 right-1.5 w-7 h-7 flex items-center justify-center rounded-full"
+              className="sm:hidden absolute top-1.5 right-1.5 w-9 h-9 flex items-center justify-center rounded-full"
               style={{
                 background: 'rgba(13,13,13,0.75)',
                 border: isWishlisted ? '1px solid rgba(221,232,245,0.35)' : '1px solid #333',
@@ -244,7 +211,7 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
               <button
                 onClick={handleAddToCart}
                 aria-label="Agregar al carrito"
-                className="sm:hidden absolute bottom-1.5 right-1.5 w-8 h-8 flex items-center justify-center rounded-full active:scale-95 transition-transform"
+                className="sm:hidden absolute bottom-1.5 right-1.5 w-10 h-10 flex items-center justify-center rounded-full active:scale-95 transition-transform"
                 style={{
                   background: 'linear-gradient(135deg, #C9CDD2 0%, #DDE8F5 100%)',
                   color: '#050505',
@@ -283,17 +250,8 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
             </div>
           </div>
 
-          {/* Ribbon for featured/promotion (top-right) */}
-          {(product.featured || product.is_promotion) && (
-            <div className="absolute top-3 right-0 pointer-events-none hidden sm:block" style={{ transform: 'translate(18px, -8px) rotate(12deg)' }}>
-              <div style={{ padding: '6px 14px', background: product.featured ? 'linear-gradient(90deg,#C9A84D,#FFD36A)' : 'linear-gradient(90deg,#F87171,#FB7185)', color: '#050505', fontWeight: 700, fontSize: '11px', borderRadius: '6px', boxShadow: '0 6px 20px rgba(0,0,0,0.4)' }}>
-                {product.featured ? 'EXCLUSIVO' : 'OFERTA'}
-              </div>
-            </div>
-          )}
-
           {/* Content */}
-          <div className="p-2 pb-2.5 sm:p-4 sm:pb-5">
+          <div className="p-3 pb-4 sm:p-4 sm:pb-5">
             {/* Category */}
             <span
               role="button"
@@ -313,7 +271,7 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
               style={{ cursor: 'pointer' }}
             >
               <span
-                className="text-[7px] tracking-[0.12em] sm:text-[9px] sm:tracking-[0.3em] font-semibold uppercase block truncate sm:mb-2"
+                className="text-[10px] tracking-[0.12em] sm:text-xs sm:tracking-[0.2em] font-semibold uppercase block truncate sm:mb-2"
                 style={{
                   fontFamily: 'var(--font-sans)',
                   color: '#8B8B8B',
@@ -325,7 +283,7 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
 
             {/* Name */}
             <h3
-              className="font-semibold text-[10px] leading-tight sm:text-sm sm:leading-snug mb-1 sm:mb-3 line-clamp-2 break-words transition-colors duration-300"
+              className="font-semibold text-sm leading-snug sm:text-sm sm:leading-snug mb-1 sm:mb-3 line-clamp-2 break-words transition-colors duration-300"
               style={{
                 fontFamily: 'var(--font-cinzel)',
                 color: isHovered ? '#F5F5F5' : '#C0C0C0',
@@ -360,7 +318,7 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
             {/* Price */}
             <div className="flex flex-col sm:flex-row sm:items-baseline gap-0 sm:gap-2.5">
               <span
-                className="text-[11px] sm:text-base font-bold leading-tight"
+                className="text-base sm:text-base font-bold leading-tight"
                 style={{
                   fontFamily: 'var(--font-cinzel)',
                   background: 'linear-gradient(135deg, #C9CDD2, #DDE8F5)',
@@ -373,7 +331,7 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
               </span>
               {product.original_price && product.original_price > product.price && (
                 <span
-                  className="text-[9px] sm:text-xs line-through leading-tight"
+                  className="text-xs sm:text-xs line-through leading-tight"
                   style={{ color: '#666' }}
                 >
                   {formatPrice(product.original_price)}
@@ -387,8 +345,8 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
             className="absolute bottom-0 left-0 right-0 h-px transition-all duration-500"
             style={{
               background: isHovered
-                ? 'linear-gradient(to right, transparent, rgba(200,164,77,0.5), transparent)'
-                : 'linear-gradient(to right, transparent, rgba(38,38,38,0.8), transparent)',
+                ? 'linear-gradient(to right, transparent, rgba(207,218,235,0.5), transparent)'
+                : 'linear-gradient(to right, transparent, rgba(137,149,168,0.2), transparent)',
             }}
           />
             </div>
@@ -420,8 +378,8 @@ function getColorHex(colorName: string): string {
   return colorMap[colorName] || '#4b5563'
 }
 
-/** Grilla de productos: 3 por fila en celular y tablet, 4 en escritorio */
-export const PRODUCT_GRID = 'grid grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-4 lg:gap-6'
+/** Grilla de productos: 2 por fila en celular, 3 en tablet y 4 en escritorio */
+export const PRODUCT_GRID = 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6'
 
 interface ProductGridProps {
   products: Product[]

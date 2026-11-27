@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { createClient } from './supabase/client'
 import { User as SupabaseUser } from '@supabase/supabase-js'
+import { clearCheckoutDraft } from './checkout-draft'
 
 // Product interface for database format
 export interface Product {
@@ -735,6 +736,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
       console.error('Error during logout:', err)
     }
     // Clear local auth state and keep cart stored for next login
+    clearCheckoutDraft() // los datos de envío no quedan en un navegador compartido
     set({ user: null, isAdmin: false })
     useCartStore.getState().setUserId(null)
     useCartStore.getState().hydrateCart(null)

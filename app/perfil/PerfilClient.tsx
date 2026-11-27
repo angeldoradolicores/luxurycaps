@@ -584,22 +584,22 @@ export default function PerfilClient({ initialUser, initialProfile, initialOrder
                 <Link href="/catalogo"><Button className="btn-luxury rounded-none text-xs uppercase tracking-wider font-semibold">Explorar Catálogo</Button></Link>
               </div>
             ) : (
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-3 gap-2 sm:gap-4 lg:gap-6">
                 {favorites.map(item => (
                   <div key={item.id} className="bg-graphite/40 border border-steel/30 rounded-none overflow-hidden hover:border-chrome/30 transition-all duration-350 group shadow-lg">
                     <Link href={`/producto/${item.slug || item.id}`}>
                       <div className="aspect-square relative bg-graphite">
-                        <Image src={item.images?.[0] || 'https://images.unsplash.com/photo-1588850561407-ed78c282e89b?w=400&q=80'} alt={item.name} fill className="object-cover group-hover:scale-105 transition-transform duration-500" />
+                        <Image src={item.images?.[0] || 'https://images.unsplash.com/photo-1588850561407-ed78c282e89b?w=400&q=80'} alt={item.name} fill sizes="(max-width: 1024px) 34vw, 25vw" className="object-cover group-hover:scale-105 transition-transform duration-500" />
                       </div>
                     </Link>
-                    <div className="p-4">
-                      <h3 className="font-semibold text-sm line-clamp-1 text-white-diamond">{item.name}</h3>
-                      <p className="text-chrome font-semibold text-sm mt-1">{formatPrice(item.price)}</p>
-                      <div className="flex gap-2 mt-4">
-                        <Button className="flex-1 btn-luxury rounded-none text-xs font-semibold uppercase tracking-wider h-10" onClick={() => { addItem(item as any, item.colors?.[0] || '', item.sizes?.[0] || '', 1); toast.success('Agregado al carrito') }}>
-                          <ShoppingCart className="w-3.5 h-3.5 mr-1 text-obsidian" /> Agregar
+                    <div className="p-2 sm:p-4">
+                      <h3 className="font-semibold text-[10px] sm:text-sm leading-tight line-clamp-2 sm:line-clamp-1 text-white-diamond">{item.name}</h3>
+                      <p className="text-chrome font-semibold text-[11px] sm:text-sm mt-1">{formatPrice(item.price)}</p>
+                      <div className="flex gap-1 sm:gap-2 mt-2 sm:mt-4">
+                        <Button aria-label="Agregar al carrito" className="flex-1 min-w-0 btn-luxury rounded-none text-xs font-semibold uppercase tracking-wider h-8 sm:h-10 px-0 sm:px-4" onClick={() => { addItem(item as any, item.colors?.[0] || '', item.sizes?.[0] || '', 1); toast.success('Agregado al carrito') }}>
+                          <ShoppingCart className="w-3.5 h-3.5 sm:mr-1 text-obsidian" /> <span className="hidden sm:inline">Agregar</span>
                         </Button>
-                        <Button variant="outline" size="icon" className="border-steel/50 rounded-none text-destructive hover:bg-destructive/10 hover:border-destructive/30 w-10 h-10" onClick={() => toggleFavorite(item)}>
+                        <Button aria-label="Quitar de favoritos" variant="outline" size="icon" className="border-steel/50 rounded-none text-destructive hover:bg-destructive/10 hover:border-destructive/30 w-8 h-8 sm:w-10 sm:h-10 shrink-0" onClick={() => toggleFavorite(item)}>
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
