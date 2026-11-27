@@ -1,11 +1,19 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { Crown, MapPin, Phone, Mail, Clock, Instagram } from "lucide-react"
+import { Crown, Phone, Mail, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
+
+function TikTokIcon({ className }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className={className} fill="currentColor">
+      <path d="M12.53.02c1.3-.02 2.6-.01 3.9-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.12 2.7 1.63 4.24 1.8V8a10.28 10.28 0 0 1-4.2-.97c-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75a7.31 7.31 0 0 1-1.35 3.94A7.2 7.2 0 0 1 9.32 22a7.13 7.13 0 0 1-4.08-1.03 7.23 7.23 0 0 1-3.65-5.72c-.02-.5-.03-1-.01-1.49a7.22 7.22 0 0 1 2.58-4.96 7.18 7.18 0 0 1 6.15-1.72c.02 1.48-.04 2.96-.04 4.44a3.31 3.31 0 0 0-3.02.37 3.28 3.28 0 0 0-1.36 1.75c-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87a3.32 3.32 0 0 0 2.77-1.61c.19-.33.4-.66.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.03-12.07Z" />
+    </svg>
+  )
+}
 
 export default function ContactoPage() {
   return (
@@ -145,11 +153,15 @@ export default function ContactoPage() {
                 <h3 className="font-display text-sm font-semibold text-white-diamond mb-4 uppercase tracking-wider">Síguenos en Redes</h3>
                 <div className="flex gap-4">
                   {[
-                    { icon: Instagram, label: "Instagram", href: "#" },
+                    { icon: TikTokIcon, label: "TikTok", href: "https://www.tiktok.com/@urbancrowncol1" },
                   ].map((social, index) => (
                     <a
                       key={index}
                       href={social.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Visitar ${social.label}`}
+                      title={social.label}
                       className="w-12 h-12 bg-graphite border border-steel/30 rounded-none flex items-center justify-center hover:bg-gold-action/5 hover:border-gold-action/50 transition-all group"
                     >
                       <social.icon className="w-5 h-5 text-chrome group-hover:text-gold-action transition-colors" />
