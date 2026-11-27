@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import Image from 'next/image'
 import { X, Plus, Minus, Trash2, ShoppingBag, ArrowRight } from 'lucide-react'
-import { useCartStore, useAuthStore } from '@/lib/store'
+import { useCartStore } from '@/lib/store'
 import { useRouter } from 'next/navigation'
 
 function formatPrice(price: number) {
@@ -16,16 +16,11 @@ function formatPrice(price: number) {
 
 export function CartDrawer() {
   const { items, isOpen, setCartOpen, removeItem, updateQuantity, total, clearCart } = useCartStore()
-  const { user } = useAuthStore()
   const router = useRouter()
   const cartTotal = total()
 
   const handleCheckout = () => {
     setCartOpen(false)
-    if (!user) {
-      router.push('/auth/login?redirect=/checkout')
-      return
-    }
     router.push('/checkout')
   }
 

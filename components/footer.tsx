@@ -245,6 +245,7 @@ export function Footer() {
             {[
               { label: 'Privacidad', href: '/privacidad' },
               { label: 'Términos', href: '/terminos' },
+              { label: 'Administración', href: '/admin' },
             ].map(({ label, href }) => (
               <Link
                 key={href}

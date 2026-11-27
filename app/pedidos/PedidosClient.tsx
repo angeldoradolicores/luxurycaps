@@ -610,12 +610,9 @@ function OrdersContent({ initialUser, initialOrders }: { initialUser: any, initi
             </div>
           )}
 
-          <div className="pt-6 border-t border-steel/20 text-center">
-            <p className="text-xs text-titanium font-light">¿Eres un cliente registrado?</p>
-            <Link href="/auth/login" className="text-xs font-bold text-gold-action hover:underline mt-2 inline-block uppercase tracking-wider">
-              Iniciar Sesión
-            </Link>
-          </div>
+          <p className="pt-6 border-t border-steel/20 text-center text-sm text-titanium">
+            Consulta tu pedido con el número de orden y el correo de tu compra, sin crear una cuenta.
+          </p>
         </div>
 
         {/* Display Tracked Order */}

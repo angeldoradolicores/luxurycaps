@@ -147,7 +147,7 @@ export default function CategoriasPage() {
           <h1 className="text-2xl md:text-3xl font-display font-bold">Categorías</h1>
           <p className="text-muted-foreground">Gestiona las categorías disponibles en el catálogo.</p>
         </div>
-        <Button onClick={openCreateDialog} className="btn-luxury">
+        <Button onClick={openCreateDialog} className="btn-luxury w-full sm:w-auto">
           <Plus className="w-4 h-4 mr-2" />
           Agregar Categoría
         </Button>
@@ -159,16 +159,19 @@ export default function CategoriasPage() {
             <thead>
               <tr className="border-b border-border bg-secondary/30">
                 <th className="text-left p-4 font-medium text-muted-foreground">Nombre</th>
-                <th className="text-left p-4 font-medium text-muted-foreground">Slug</th>
+                <th className="text-left p-4 font-medium text-muted-foreground hidden sm:table-cell">Slug</th>
                 <th className="text-right p-4 font-medium text-muted-foreground">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {categories.map((category) => (
                 <tr key={category.id} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
-                  <td className="p-4">{category.name}</td>
-                  <td className="p-4 text-muted-foreground">{category.slug}</td>
-                  <td className="p-4 text-right">
+                  <td className="p-3 sm:p-4 min-w-0">
+                    <p className="break-words">{category.name}</p>
+                    <p className="sm:hidden text-xs text-muted-foreground break-all">{category.slug}</p>
+                  </td>
+                  <td className="p-4 text-muted-foreground hidden sm:table-cell">{category.slug}</td>
+                  <td className="p-3 sm:p-4 text-right w-px whitespace-nowrap">
                     <div className="inline-flex gap-2">
                       <Button variant="outline" size="sm" onClick={() => openEditDialog(category)}>
                         <Edit className="w-4 h-4" />
@@ -195,7 +198,7 @@ export default function CategoriasPage() {
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="sm:max-w-lg p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>{editingCategory ? 'Editar Categoría' : 'Agregar Categoría'}</DialogTitle>
           </DialogHeader>

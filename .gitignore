@@ -21,3 +21,8 @@ node_modules
 
 # Artefactos locales de auditorías (bases de datos de prueba, logs)
 audit/
+
+# Configuración local de agentes y cachés de compilación
+.claude/
+skills-lock.json
+tsconfig.tsbuildinfo

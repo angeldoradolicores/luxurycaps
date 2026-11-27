@@ -7,7 +7,8 @@ import { useSearchParams } from 'next/navigation'
 import { CheckCircle, XCircle, Clock, Package, Truck, CreditCard, ArrowRight, Loader2 } from 'lucide-react'
 import { Navbar } from '@/components/navbar'
 import { Button } from '@/components/ui/button'
-import { useCartStore } from '@/lib/store'
+import { useCartStore, useAuthStore } from '@/lib/store'
+import { clearCheckoutDraft } from '@/lib/checkout-draft'
 
 function formatPrice(price: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -47,6 +48,7 @@ function ConfirmacionContent() {
   const searchParams = useSearchParams()
   const reference = searchParams.get('ref')
   const clearCart = useCartStore((s) => s.clearCart)
+  const userId = useAuthStore((s) => s.user?.id)
 
   const [order, setOrder] = useState<OrderData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -103,6 +105,7 @@ function ConfirmacionContent() {
     if (order && PAID_STATUSES.includes(order.status) && !cartCleared.current) {
       cartCleared.current = true
       clearCart()
+      clearCheckoutDraft(userId ?? 'guest') // pago aprobado: ya no se necesita el borrador
     }
   }, [order?.status])
 
@@ -281,9 +284,18 @@ function ConfirmacionContent() {
           )}
 
           {/* Actions */}
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
+            {!isApproved && (
+              // El carrito y los datos del checkout se conservan: el cliente retoma donde iba
+              <Link href="/checkout">
+                <Button className="btn-luxury w-full sm:w-auto">
+                  <CreditCard className="w-4 h-4 mr-2" />
+                  Continuar con mi compra
+                </Button>
+              </Link>
+            )}
             <Link href="/catalogo">
-              <Button className="btn-luxury w-full sm:w-auto">
+              <Button variant={isApproved ? undefined : 'outline'} className={isApproved ? 'btn-luxury w-full sm:w-auto' : 'border-border/50 w-full sm:w-auto'}>
                 Seguir Comprando
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>

@@ -114,12 +114,12 @@ export default function ClientesPage() {
       </div>
 
       {/* Search */}
-      <div className="flex flex-col sm:flex-row gap-3 items-center">
+      <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
         <div className="flex items-center gap-2">
           <Button size="sm" variant={showBuyersOnly ? undefined : 'ghost'} onClick={() => setShowBuyersOnly(false)}>Todos</Button>
           <Button size="sm" variant={showBuyersOnly ? 'default' : 'ghost'} onClick={() => setShowBuyersOnly(true)}>Compradores</Button>
         </div>
-        <div className="relative flex-1">
+        <div className="relative flex-1 w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Buscar por nombre, email o teléfono..."
@@ -127,8 +127,38 @@ export default function ClientesPage() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="rounded-2xl bg-card border border-border/50 overflow-hidden">
+      {/* Móvil: tarjetas (sin scroll horizontal) */}
+      <div className="md:hidden space-y-3">
+        {filtered.map((c) => (
+          <button key={c.id} type="button" onClick={() => openCustomer(c)}
+            className="w-full text-left flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 active:bg-secondary/30">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center shrink-0">
+              {c.is_admin ? <Crown className="w-4 h-4 text-primary" /> : <User className="w-4 h-4 text-primary/70" />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-sm truncate">
+                {c.full_name || 'Sin nombre'}
+                {c.is_admin && <span className="ml-1.5 text-xs text-primary font-medium">Admin</span>}
+              </p>
+              {c.email && <p className="text-xs text-muted-foreground truncate">{c.email}</p>}
+              <p className="mt-1 text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">{c.total_orders}</span> pedidos ·{' '}
+                <span className="font-semibold text-primary">{formatPrice(c.total_spent)}</span>
+              </p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+          </button>
+        ))}
+        {filtered.length === 0 && (
+          <div className="text-center py-12 rounded-xl bg-card border border-border/50">
+            <Users className="w-10 h-10 mx-auto text-muted-foreground/30 mb-3" />
+            <p className="text-muted-foreground text-sm">No se encontraron clientes</p>
+          </div>
+        )}
+      </div>
+
+      {/* Tabla — tablet/escritorio */}
+      <div className="hidden md:block rounded-2xl bg-card border border-border/50 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -209,7 +239,7 @@ export default function ClientesPage() {
 
       {/* Customer Detail */}
       <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-xl p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display text-xl flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center">

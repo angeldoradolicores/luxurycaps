@@ -8,7 +8,7 @@ import SparklesUI from '@/components/sparkles'
 import { Button } from "@/components/ui/button"
 import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
-import { ProductCard } from "@/components/product-card"
+import { ProductCard, PRODUCT_GRID } from "@/components/product-card"
 import { useProducts } from '@/lib/hooks/use-products'
 import { type Product } from "@/lib/store"
 
@@ -126,7 +126,7 @@ export default function PromocionesPage() {
           </div>
 
           {loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+            <div className={PRODUCT_GRID}>
               {[...Array(4)].map((_, i) => (
                 <div key={i} className="animate-pulse space-y-4">
                   <div className="aspect-square bg-graphite border border-steel/20 rounded-none" />
@@ -139,7 +139,7 @@ export default function PromocionesPage() {
               ))}
             </div>
           ) : products.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+            <div className={PRODUCT_GRID}>
               {products.map((product, index) => (
                 <ProductCard key={product.id} product={product} index={index} />
               ))}

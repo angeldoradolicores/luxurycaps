@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { loadCheckoutDraft, saveCheckoutDraft } from '@/lib/checkout-draft'
 import { motion, AnimatePresence } from 'framer-motion'
 import Image from 'next/image';
 import departmentsData from '../../departments.json';
 import citiesData from '../../cities.json';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation'
 import { ArrowLeft, Truck, CreditCard, MapPin, CheckCircle, Minus, Plus, Trash2, Package, Loader2, Smartphone, Building2, Plus as PlusIcon } from 'lucide-react'
 import { useCartStore, useAuthStore } from '@/lib/store'
 import { createClient } from '@/lib/supabase/client'
@@ -61,7 +61,6 @@ const paymentMethods = [
 export default function CheckoutPage() {
   const { items, removeItem, updateQuantity, total } = useCartStore()
   const { user, isInitialized } = useAuthStore()
-  const router = useRouter()
   const cartTotal = total()
   const [step, setStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
@@ -145,16 +144,72 @@ export default function CheckoutPage() {
     phone: '',
   })
 
-  useEffect(() => {
-    if (isInitialized && !user && items.length > 0) {
-      router.push('/auth/login?redirect=/checkout')
-    }
+  // Borrador: al volver de Wompi (atrás o "Continuar con mi compra") se recupera lo escrito
+  // draftLoaded es estado (no ref): el guardado espera al render que YA tiene los datos recuperados
+  const [draftLoaded, setDraftLoaded] = useState(false)
+  const restoredFromDraft = useRef(false)
 
-    // Load user data and addresses
-    if (user && isInitialized) {
+  const revalidatePromo = async (code: string) => {
+    try {
+      const response = await fetch('/api/promotions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      })
+      if (!response.ok) return
+      const promotion = await response.json()
+      setAppliedPromo({
+        code: promotion.code,
+        discount_type: promotion.discount_type,
+        discount_value: promotion.discount_value,
+        min_purchase: promotion.min_purchase ?? null,
+      })
+    } catch {}
+  }
+
+  useEffect(() => {
+    if (isInitialized && !draftLoaded) {
+      const draft = loadCheckoutDraft(user?.id ?? 'guest')
+      if (draft) {
+        restoredFromDraft.current = true
+        setShippingData(prev => ({ ...prev, ...draft.shippingData }))
+        setSelectedDepartment(draft.selectedDepartment || '')
+        setMunicipalities(departmentMunicipalities[draft.selectedDepartment] || [])
+        setSelectedShipping(draft.selectedShipping || '')
+        setSelectedPayment(draft.selectedPayment || 'CARD')
+        setSelectedAddressId(draft.selectedAddressId || '')
+        setPromoCode(draft.promoCode || '')
+        if (draft.appliedPromoCode) revalidatePromo(draft.appliedPromoCode)
+        setStep(Math.min(Math.max(draft.step || 1, 1), 3))
+      }
+      setDraftLoaded(true)
       loadUserDataAndAddresses()
     }
   }, [isInitialized, user])
+
+  // Guarda el borrador en cada cambio (sólo datos que escribe el cliente; los precios los pone el servidor)
+  useEffect(() => {
+    if (!draftLoaded) return
+    saveCheckoutDraft(user?.id ?? 'guest', {
+      step,
+      shippingData,
+      selectedDepartment,
+      selectedShipping,
+      selectedPayment,
+      selectedAddressId,
+      promoCode,
+      appliedPromoCode: appliedPromo?.code ?? null,
+    })
+  }, [user, draftLoaded, step, shippingData, selectedDepartment, selectedShipping, selectedPayment, selectedAddressId, promoCode, appliedPromo])
+
+  // Si el navegador restaura la página desde su caché al pulsar "atrás", el botón no queda cargando
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) setIsLoading(false)
+    }
+    window.addEventListener('pageshow', onPageShow)
+    return () => window.removeEventListener('pageshow', onPageShow)
+  }, [])
 
   const loadUserDataAndAddresses = async () => {
     if (!user) return
@@ -169,7 +224,15 @@ export default function CheckoutPage() {
         .eq('id', user.id)
         .maybeSingle()
 
-      if (profile) {
+      // Con borrador recuperado, el perfil sólo completa campos vacíos (no pisa lo que el cliente escribió)
+      if (profile && restoredFromDraft.current) {
+        setShippingData(prev => ({
+          ...prev,
+          fullName: prev.fullName || profile.full_name || '',
+          email: prev.email || profile.email || user.email || '',
+          phone: prev.phone || profile.phone || '',
+        }))
+      } else if (profile) {
         setShippingData(prev => ({
           ...prev,
           fullName: profile.full_name || '',
@@ -187,6 +250,7 @@ export default function CheckoutPage() {
 
       if (userAddresses && userAddresses.length > 0) {
         setAddresses(userAddresses as Address[])
+        if (restoredFromDraft.current) return
         // Auto-select first or default address
         const defaultAddr = userAddresses.find((a: any) => a.is_default)
         const firstAddr = userAddresses[0]
@@ -380,7 +444,7 @@ export default function CheckoutPage() {
     return (
       <main className="min-h-screen bg-obsidian">
         <Navbar />
-        <div className="pt-40 pb-20 container mx-auto px-4 max-w-7xl">
+        <div className="pt-28 sm:pt-40 pb-16 sm:pb-20 container mx-auto px-4 max-w-7xl">
           <div className="text-center py-24 bg-carbon border border-steel/30 rounded-none shadow-2xl">
             <Package className="w-16 h-16 mx-auto text-steel mb-6" />
             <h1 className="text-xl font-display font-semibold uppercase tracking-wider text-white-diamond mb-4">Tu carrito está vacío</h1>
@@ -417,18 +481,24 @@ export default function CheckoutPage() {
             </Link>
           </motion.div>
 
-          <h1 className="text-3xl md:text-4xl font-display font-bold mb-10 text-white-diamond uppercase tracking-tight">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-display font-bold mb-6 sm:mb-10 text-white-diamond uppercase tracking-tight">
             FINALIZAR <span className="text-gradient-gold">COMPRA</span>
           </h1>
 
+          {!user && (
+            <p className="mb-6 text-sm text-chrome">
+              Compra sin registrarte. Solo necesitamos tus datos de contacto y envío.
+            </p>
+          )}
+
           {/* Progress Steps */}
-          <div className="flex items-center justify-center gap-4 mb-14 bg-carbon/50 p-4 border border-steel/20 rounded-none max-w-2xl mx-auto shadow-lg">
+          <div className="flex items-center justify-center gap-2 sm:gap-4 mb-8 sm:mb-14 bg-carbon/50 p-3 sm:p-4 border border-steel/20 rounded-none max-w-2xl mx-auto shadow-lg">
             {[
               { num: 1, label: 'Carrito', icon: Package },
               { num: 2, label: 'Envío', icon: Truck },
               { num: 3, label: 'Pago', icon: CreditCard },
             ].map((s, index) => (
-              <div key={s.num} className="flex items-center gap-4">
+              <div key={s.num} className="flex items-center gap-2 sm:gap-4">
                 <button
                   onClick={() => s.num <= step && setStep(s.num)}
                   disabled={s.num > step}
@@ -441,16 +511,16 @@ export default function CheckoutPage() {
                   }`}>
                     {s.num < step ? <CheckCircle className="w-4 h-4 text-obsidian" /> : s.num}
                   </span>
-                  <span className="hidden sm:inline text-xs font-semibold uppercase tracking-wider">{s.label}</span>
+                  <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider">{s.label}</span>
                 </button>
                 {index < 2 && (
-                  <div className={`w-12 h-[1px] transition-all ${s.num < step ? 'bg-gold-action' : 'bg-steel/30'}`} />
+                  <div className={`w-5 sm:w-12 h-[1px] transition-all ${s.num < step ? 'bg-gold-action' : 'bg-steel/30'}`} />
                 )}
               </div>
             ))}
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
             {/* Main Content */}
             <div className="lg:col-span-2">
               <AnimatePresence mode="wait">
@@ -469,9 +539,9 @@ export default function CheckoutPage() {
                     {items.map((item) => (
                       <div
                         key={item.id}
-                        className="flex gap-4 p-4 rounded-none bg-carbon border border-steel/30 shadow-md"
+                        className="flex gap-3 sm:gap-4 p-3 sm:p-4 rounded-none bg-carbon border border-steel/30 shadow-md"
                       >
-                        <div className="relative w-20 h-20 rounded-none bg-graphite overflow-hidden border border-steel/30 shrink-0">
+                        <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-none bg-graphite overflow-hidden border border-steel/30 shrink-0">
                           <Image
                             src={item.product.images?.[0] || '/images/placeholder-hat.jpg'}
                             alt={item.product.name}
@@ -480,7 +550,7 @@ export default function CheckoutPage() {
                           />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-sm text-white-diamond truncate">{item.product.name}</h3>
+                          <h3 className="font-semibold text-sm text-white-diamond line-clamp-2 break-words">{item.product.name}</h3>
                           <p className="text-xs text-titanium mt-1 font-light font-sans">
                             Color: {item.selectedColor} {item.selectedSize && `· Talla: ${item.selectedSize}`}
                           </p>
@@ -959,7 +1029,7 @@ export default function CheckoutPage() {
 
             {/* Order Summary */}
             <div className="lg:col-span-1">
-              <div className="sticky top-32 p-6 bg-carbon border border-steel/30 rounded-none shadow-2xl">
+              <div className="lg:sticky lg:top-32 p-4 sm:p-6 bg-carbon border border-steel/30 rounded-none shadow-2xl">
                 <h3 className="text-sm font-display font-semibold mb-6 uppercase tracking-wider text-white-diamond border-b border-steel/10 pb-3">Resumen de Compra</h3>
 
                 <div className="space-y-4 mb-6 max-h-48 overflow-y-auto pr-2">

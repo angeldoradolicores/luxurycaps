@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Menu, X, ShoppingBag, User, Crown, LogOut, Heart } from 'lucide-react'
+import { Menu, X, ShoppingBag, Crown, LogOut, Heart } from 'lucide-react'
 import { useCartStore, useFavoritesStore, useAuthStore } from '@/lib/store'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -31,10 +31,6 @@ export function Navbar() {
   const initCalledRef = useRef(false)
 
   const handleFavorites = () => {
-    if (!user) {
-      router.push('/auth/login?redirect=/favoritos')
-      return
-    }
     router.push('/favoritos')
   }
 
@@ -53,6 +49,7 @@ export function Navbar() {
       // Use a local ref to prevent double-init within same component mount
       if (initCalledRef.current) return
       initCalledRef.current = true
+      try {
 
       const { data: { session } } = await supabase.auth.getSession()
       let currentUser = session?.user ?? null
@@ -88,8 +85,11 @@ export function Navbar() {
         useCartStore.getState().hydrateCart()
         useFavoritesStore.getState().hydrateFavorites()
       }
-
-      setInitialized(true)
+      } catch (err) {
+        console.error('[navbar] initAuth', err)
+      } finally {
+        setInitialized(true)
+      }
     }
 
     initAuth()
@@ -100,9 +100,17 @@ export function Navbar() {
     useCartStore.getState().syncCartFromServer().catch(() => {})
     useFavoritesStore.getState().syncFavoritesFromServer().catch(() => {})
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       const currentUser = session?.user || null
       setUser(currentUser)
+      // Supabase: NO esperar otras llamadas de Supabase dentro de este callback (bloquea el lock
+      // de Auth y deja colgados getSession/getUser → isInitialized nunca llegaba a true).
+      // Se difiere el trabajo fuera del callback, como recomienda la documentación.
+      setTimeout(() => { void onSessionChange(currentUser) }, 0)
+    })
+
+    const onSessionChange = async (currentUser: typeof user) => {
+      try {
       if (!currentUser) {
         setIsAdmin(false)
         useCartStore.getState().setUserId(null)
@@ -126,8 +134,12 @@ export function Navbar() {
           useFavoritesStore.getState().syncFavoritesFromServer(),
         ])
       }
-      setInitialized(true)
-    })
+      } catch (err) {
+        console.error('[navbar] auth state change', err)
+      } finally {
+        setInitialized(true)
+      }
+    }
 
     return () => subscription.unsubscribe()
   }, [setUser, setIsAdmin, setInitialized])
@@ -206,44 +218,10 @@ export function Navbar() {
             {/* ── Actions ─────────────────────────── */}
             <div className="flex items-center gap-1 sm:gap-4 shrink-0">
 
-              {user ? (
-                <div className="flex items-center gap-3">
-                  {isAdmin && (
-                    <Link href="/admin">
-                      <motion.button
-                        whileHover={{ scale: 1.03 }}
-                        whileTap={{ scale: 0.97 }}
-                        className="hidden sm:flex items-center gap-1.5 px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] border border-steel text-titanium hover:border-chrome hover:text-white-diamond rounded-sm transition-all duration-300"
-                        style={{ fontFamily: 'var(--font-sans)', letterSpacing: '0.15em' }}
-                      >
-                        <Crown className="w-3 h-3" />
-                        Admin
-                      </motion.button>
-                    </Link>
-                  )}
-                  <Link href="/perfil">
-                    <motion.button
-                      whileHover={{ scale: 1.08 }}
-                      whileTap={{ scale: 0.92 }}
-                      className="p-2 text-titanium hover:text-white-diamond transition-colors duration-300"
-                    >
-                      <User className="w-4.5 h-4.5" style={{ width: '18px', height: '18px' }} />
-                    </motion.button>
-                  </Link>
-                </div>
-              ) : (
-                <Link href="/auth/login">
-                  <motion.button
-                    whileHover={{ scale: 1.03 }}
-                    whileTap={{ scale: 0.97 }}
-                    aria-label="Ingresar"
-                    className="flex items-center gap-2 p-2 sm:px-4 sm:py-2 text-[10px] font-bold uppercase tracking-[0.15em] sm:border border-steel text-titanium hover:border-chrome hover:text-white-diamond rounded-sm transition-all duration-300"
-                    style={{ fontFamily: 'var(--font-sans)', letterSpacing: '0.15em' }}
-                  >
-                    <User className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                    {/* En celular sólo el ícono: el texto empujaba el menú fuera de la pantalla */}
-                    <span className="hidden sm:inline">Ingresar</span>
-                  </motion.button>
+              {user && isAdmin && (
+                <Link href="/admin" className="hidden sm:flex items-center gap-2 px-3 py-2 text-xs text-titanium hover:text-white-diamond transition-colors">
+                  <Crown className="w-4 h-4" />
+                  Panel Admin
                 </Link>
               )}
 
@@ -421,23 +399,6 @@ export function Navbar() {
                         style={{ fontFamily: 'var(--font-sans)' }}>
                         <Crown className="w-3.5 h-3.5 inline mr-2" />
                         Panel Admin
-                      </button>
-                    </Link>
-                  </motion.div>
-                )}
-
-                {!user && (
-                  <motion.div
-                    initial={{ opacity: 0, x: 24 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: navLinks.length * 0.07 }}
-                    className="pt-6"
-                  >
-                    <Link href="/auth/login" onClick={() => setIsMobileMenuOpen(false)}>
-                      <button className="w-full py-3.5 text-xs font-bold uppercase tracking-[0.2em] bg-gradient-to-r from-chrome/80 to-steel/70 text-obsidian rounded-sm transition-all duration-300"
-                        style={{ fontFamily: 'var(--font-sans)' }}>
-                        <User className="w-3.5 h-3.5 inline mr-2" />
-                        Ingresar
                       </button>
                     </Link>
                   </motion.div>

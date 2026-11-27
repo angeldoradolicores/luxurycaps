@@ -6,11 +6,11 @@ import crypto from 'crypto'
 import { z } from 'zod'
 import { checkRateLimit, limitByIp, tooManyRequests } from '@/lib/rate-limit'
 
-// Máximo de pedidos sin pagar simultáneos por usuario (evita acaparar inventario)
-const MAX_PENDING_ORDERS_PER_USER = 3
+// Máximo de pedidos sin pagar por cuenta o correo de invitado.
+const MAX_PENDING_ORDERS_PER_CUSTOMER = 3
 
-// Unidades máximas de un mismo producto por pedido y por usuario en pedidos pendientes.
-// Debe coincidir con el tope de supabase-security-fix-7.sql (create_pending_order).
+// Unidades máximas de un mismo producto por pedido y por cliente en pedidos pendientes.
+// Debe coincidir con el tope de supabase-guest-checkout.sql (create_pending_order).
 const MAX_UNITS_PER_PRODUCT = 20
 
 const SHIPPING_RATES = { interrapidisimo: 17000, recoger: 0 } as const
@@ -76,21 +76,23 @@ export async function POST(request: Request) {
       data: { user },
     } = await supabase.auth.getUser()
 
-    // Comprar exige sesión (el checkout ya lo exige en la interfaz)
-    if (!user) {
-      return NextResponse.json({ error: 'Debes iniciar sesión para completar la compra' }, { status: 401 })
-    }
-
-    if (!(await checkRateLimit('orders:create:user', user.id, 5, 600))) {
+    const customerKey = user ? `user:${user.id}` : `guest:${shippingInfo.email}`
+    if (!(await checkRateLimit('orders:create:customer', customerKey, 5, 600))) {
       return tooManyRequests(600)
     }
 
-    const { count: pendingCount } = await db
+    let pendingQuery = db
       .from('orders')
       .select('id', { count: 'exact', head: true })
-      .eq('user_id', user.id)
       .eq('status', 'pending')
-    if ((pendingCount ?? 0) >= MAX_PENDING_ORDERS_PER_USER) {
+    pendingQuery = user
+      ? pendingQuery.eq('user_id', user.id)
+      : pendingQuery.is('user_id', null).eq('guest_email', shippingInfo.email)
+    const { count: pendingCount, error: pendingError } = await pendingQuery
+    if (pendingError) {
+      return NextResponse.json({ error: 'No pudimos verificar tus pedidos, intenta de nuevo' }, { status: 503 })
+    }
+    if ((pendingCount ?? 0) >= MAX_PENDING_ORDERS_PER_CUSTOMER) {
       return NextResponse.json(
         { error: 'Tienes pedidos pendientes de pago. Complétalos o espera unos minutos antes de crear otro.' },
         { status: 429 }
@@ -198,7 +200,7 @@ export async function POST(request: Request) {
     }
 
     // 3) Pedido + ítems + reserva de stock en UNA transacción (create_pending_order).
-    //    Los topes (3 pendientes por usuario, usos del cupón) se vuelven a verificar ahí bajo bloqueo,
+    //    Los topes (3 pendientes por cliente, usos del cupón) se vuelven a verificar ahí bajo bloqueo,
     //    así que peticiones simultáneas no los pueden saltar.
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
     const orderNumber = `LH-${dateStr}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`
@@ -206,7 +208,8 @@ export async function POST(request: Request) {
     const { data: orderId, error: createError } = await db.rpc('create_pending_order', {
       p_order: {
         order_number: orderNumber,
-        user_id: user.id,
+        user_id: user?.id ?? null,
+        guest_email: user ? null : shippingInfo.email,
         subtotal,
         shipping_cost: shippingCost,
         discount,
@@ -226,7 +229,7 @@ export async function POST(request: Request) {
         notes: shippingInfo.notes || '',
       },
       p_items: lines,
-      p_max_pending: MAX_PENDING_ORDERS_PER_USER,
+      p_max_pending: MAX_PENDING_ORDERS_PER_CUSTOMER,
     })
 
     if (createError || typeof orderId !== 'string') {
