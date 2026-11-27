@@ -2,16 +2,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import { sendOrderStatusEmail } from '@/lib/mail'
 import { requireAdmin, ADMIN_ASSIGNABLE_STATUSES, UUID_RE } from '@/lib/supabase/require-admin'
+import { ORDER_TRANSITIONS } from '@/lib/order-transitions'
 
 // Transiciones válidas para un admin. 'paid' solo lo asigna Wompi (lib/payments.ts)
-const TRANSITIONS: Record<string, string[]> = {
-  pending: ['cancelled'],
-  paid: ['processing', 'shipped', 'delivered', 'cancelled'],
-  processing: ['shipped', 'delivered', 'cancelled'],
-  shipped: ['delivered', 'cancelled'],
-  delivered: [],
-  cancelled: [],
-}
 // Si se cancela antes de despachar, el inventario reservado vuelve a estar disponible
 const RELEASE_STOCK_FROM = ['pending', 'paid', 'processing']
 
@@ -61,7 +54,7 @@ export async function PUT(
     // Si el formulario reenvía el estado actual, no es un cambio de estado
     const statusChange: string | null = status && status !== current.status ? status : null
     if (statusChange) {
-      const allowedNext = TRANSITIONS[current.status] ?? []
+      const allowedNext = ORDER_TRANSITIONS[current.status] ?? []
       if (!(ADMIN_ASSIGNABLE_STATUSES as readonly string[]).includes(statusChange) || !allowedNext.includes(statusChange)) {
         return NextResponse.json(
           { error: `No se puede pasar de "${current.status}" a "${statusChange}"` },

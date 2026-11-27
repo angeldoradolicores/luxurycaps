@@ -10,7 +10,7 @@ export async function GET() {
         id, order_number, created_at, status, subtotal, shipping_cost, total,
         shipping_method, payment_method, shipping_address,
         tracking_number, carrier, tracking_photo_url, admin_note,
-        shipped_at, delivered_at, user_id${extra},
+        shipped_at, delivered_at, user_id, wompi_transaction_id${extra},
         items:order_items(id, product_name, quantity, price, color, size, product_image)
       `
     const load = (extra: string) =>

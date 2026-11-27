@@ -9,6 +9,7 @@ import { Navbar } from '@/components/navbar'
 import { Button } from '@/components/ui/button'
 import { useCartStore, useAuthStore } from '@/lib/store'
 import { clearCheckoutDraft } from '@/lib/checkout-draft'
+import { paymentView } from '@/lib/payment-view'
 
 function formatPrice(price: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -42,11 +43,14 @@ interface OrderData {
   }[]
   transactionStatus?: string
   transactionMessage?: string
+  paymentReview?: boolean
+  retryCheckoutUrl?: string
 }
 
 function ConfirmacionContent() {
   const searchParams = useSearchParams()
   const reference = searchParams.get('ref')
+  const wompiId = searchParams.get('id')
   const clearCart = useCartStore((s) => s.clearCart)
   const userId = useAuthStore((s) => s.user?.id)
 
@@ -65,9 +69,10 @@ function ConfirmacionContent() {
     }
 
     let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
     let attempts = 0
     const MAX_ATTEMPTS = 40 // ~2 minutos a 3 s
-    const wompiId = searchParams.get('id')
+    setPollingExhausted(false)
 
     const fetchOrder = async () => {
       try {
@@ -81,13 +86,13 @@ function ConfirmacionContent() {
 
         if (data.status === 'pending') {
           attempts += 1
-          if (attempts < MAX_ATTEMPTS) setTimeout(fetchOrder, 3000)
+          if (attempts < MAX_ATTEMPTS) timer = setTimeout(fetchOrder, 3000)
           else setPollingExhausted(true)
         }
       } catch (err) {
         if (cancelled) return
         attempts += 1
-        if (attempts < 3) setTimeout(fetchOrder, 3000)
+        if (attempts < 3) timer = setTimeout(fetchOrder, 3000)
         else setError(err instanceof Error ? err.message : 'Error al cargar la orden')
       } finally {
         if (!cancelled) setLoading(false)
@@ -97,8 +102,9 @@ function ConfirmacionContent() {
     fetchOrder()
     return () => {
       cancelled = true
+      clearTimeout(timer)
     }
-  }, [reference])
+  }, [reference, wompiId])
 
   const PAID_STATUSES = ['paid', 'processing', 'shipped', 'delivered']
   useEffect(() => {
@@ -142,10 +148,12 @@ function ConfirmacionContent() {
   }
 
   // Solo el estado en BD (confirmado por webhook/API de Wompi) decide lo que ve el cliente
-  const orderStatus = order?.status
-  const isApproved = !!orderStatus && PAID_STATUSES.includes(orderStatus)
-  const isPending = orderStatus === 'pending'
-  const isDeclined = orderStatus === 'cancelled'
+  const view = paymentView(order ?? { status: 'pending' })
+  const isApproved = view === 'approved'
+  const isPending = view === 'pending'
+  const isDeclined = view === 'failed'
+  const isCancelled = view === 'cancelled'
+  const isReview = view === 'review'
 
   return (
     <main className="min-h-screen">
@@ -164,26 +172,32 @@ function ConfirmacionContent() {
               transition={{ delay: 0.2, type: 'spring' }}
               className={`w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 ${
                 isApproved ? 'bg-green-500/20' : 
-                isPending ? 'bg-yellow-500/20' : 
+                isPending || isReview ? 'bg-yellow-500/20' :
                 'bg-destructive/20'
               }`}
             >
               {isApproved && <CheckCircle className="w-12 h-12 text-green-500" />}
-              {isPending && <Clock className="w-12 h-12 text-yellow-500" />}
-              {isDeclined && <XCircle className="w-12 h-12 text-destructive" />}
+              {(isPending || isReview) && <Clock className="w-12 h-12 text-yellow-500" />}
+              {(isDeclined || isCancelled) && <XCircle className="w-12 h-12 text-destructive" />}
             </motion.div>
 
             <h1 className="text-3xl md:text-4xl font-display font-bold mb-4">
               {isApproved && <>Pedido <span className="text-gradient-gold">Confirmado!</span></>}
               {isPending && <>Pago <span className="text-yellow-500">Pendiente</span></>}
-              {isDeclined && <>Pago <span className="text-destructive">Rechazado</span></>}
+              {isDeclined && <>Intento de pago <span className="text-destructive">No completado</span></>}
+              {isCancelled && <>Pedido <span className="text-destructive">Cancelado</span></>}
+              {isReview && <>Pago <span className="text-yellow-500">En revisión</span></>}
             </h1>
 
             <p className="text-muted-foreground mb-2">
               {isApproved && 'Gracias por tu compra. Hemos enviado los detalles a tu email.'}
               {isPending && !pollingExhausted && 'Estamos confirmando tu pago con Wompi. Esto puede tardar unos segundos...'}
               {isPending && pollingExhausted && 'Tu pago aún está en proceso (PSE y Nequi pueden tardar). Te notificaremos por correo cuando se confirme.'}
-              {isDeclined && 'Hubo un problema con tu pago. Tus productos siguen en el carrito para que lo intentes de nuevo.'}
+              {isDeclined && (order?.retryCheckoutUrl
+                ? 'Este intento no se completó. Tu pedido sigue pendiente y puedes reintentar el pago en Wompi.'
+                : 'Este intento no se completó y el enlace de pago venció. Contacta con nosotros para continuar con este pedido.')}
+              {isCancelled && 'Este pedido fue cancelado. Si realizaste un pago, contacta con nosotros antes de volver a pagar.'}
+              {isReview && 'Estamos revisando un pago asociado a tu pedido. No vuelvas a pagar; contacta con nosotros para confirmar el envío o la devolución.'}
             </p>
 
             {order && (
@@ -267,12 +281,14 @@ function ConfirmacionContent() {
                   <p className="text-sm text-muted-foreground">
                     Estado: <span className={`font-medium ${
                       isApproved ? 'text-green-500' : 
-                      isPending ? 'text-yellow-500' : 
+                      isPending || isReview ? 'text-yellow-500' :
                       'text-destructive'
                     }`}>
                       {isApproved && 'Aprobado'}
                       {isPending && 'Pendiente'}
-                      {isDeclined && 'Rechazado'}
+                      {isDeclined && 'Intento no completado'}
+                      {isCancelled && 'Pedido cancelado'}
+                      {isReview && 'En revisión'}
                     </span>
                   </p>
                   {order.transactionMessage && (
@@ -285,14 +301,13 @@ function ConfirmacionContent() {
 
           {/* Actions */}
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
-            {!isApproved && (
-              // El carrito y los datos del checkout se conservan: el cliente retoma donde iba
-              <Link href="/checkout">
+            {isDeclined && order?.retryCheckoutUrl && (
+              <a href={order.retryCheckoutUrl}>
                 <Button className="btn-luxury w-full sm:w-auto">
                   <CreditCard className="w-4 h-4 mr-2" />
-                  Continuar con mi compra
+                  Reintentar pago en Wompi
                 </Button>
-              </Link>
+              </a>
             )}
             <Link href="/catalogo">
               <Button variant={isApproved ? undefined : 'outline'} className={isApproved ? 'btn-luxury w-full sm:w-auto' : 'border-border/50 w-full sm:w-auto'}>

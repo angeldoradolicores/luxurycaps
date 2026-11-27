@@ -35,20 +35,10 @@ export async function POST(
     if (!order) return NextResponse.json({ error: 'Orden no encontrada' }, { status: 404 })
     if (!order.payment_issue) return NextResponse.json({ error: 'Este pedido no tiene una alerta activa' }, { status: 409 })
 
-    const now = new Date().toISOString()
-    const entry = `[${now}] ${order.payment_issue}\n→ Resuelto por admin ${user.id}: ${note}`
-    const { data: updated, error } = await db
-      .from('orders')
-      .update({
-        payment_issue: null,
-        payment_issue_resolved: [order.payment_issue_resolved, entry].filter(Boolean).join('\n\n'),
-        payment_issue_resolved_at: now,
-        updated_at: now,
-      })
-      .eq('id', orderId)
-      .eq('payment_issue', order.payment_issue) // si llegó otra alerta mientras tanto, no la borra
-      .select('id')
-      .maybeSingle()
+    const { data: updated, error } = await db.rpc('resolve_order_payment_issue', {
+      p_order_id: orderId, p_admin_id: user.id, p_note: note,
+      p_expected_issue: order.payment_issue,
+    })
 
     if (error) {
       console.error('[admin/resolve-issue]', { orderId, code: error.code })
