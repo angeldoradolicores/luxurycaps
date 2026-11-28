@@ -14,6 +14,7 @@ import { ChatBot } from '@/components/chatbot'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ProductCard, PRODUCT_GRID } from '@/components/product-card'
+import { CategoryScroller } from '@/components/category-scroller'
 import {
   Select,
   SelectContent,
@@ -41,6 +42,14 @@ function CatalogoContent() {
   const categoryParam = selectedCategory !== 'Todos' ? selectedCategory : undefined
   const { products, isLoading: loading } = useProducts({ category: categoryParam, search: debouncedSearch, limit: 100 })
   const validCategorySlugs = adminCategories.map((category) => category.slug)
+  // "Todos" primero, luego las bélicas, y el resto por orden alfabético
+  const categoryOptions = useMemo(() => {
+    const isBelica = (name: string) => /^gorras b[eé]licas/i.test(name)
+    const sorted = [...adminCategories].sort((a, b) =>
+      Number(isBelica(b.name)) - Number(isBelica(a.name)) ||
+      a.name.localeCompare(b.name, 'es', { numeric: true }))
+    return [{ slug: 'Todos', label: 'Todos' }, ...sorted.map((c) => ({ slug: c.slug, label: c.name }))]
+  }, [adminCategories])
   const router = useRouter()
 
   useEffect(() => {
@@ -194,34 +203,8 @@ function CatalogoContent() {
         <div className="container mx-auto px-4 max-w-7xl">
           
           {/* Level 1: Category Selector (Desktop) */}
-          <div className="hidden lg:flex justify-center items-center mb-8 border-b border-steel/10 pb-4">
-            <div className="flex gap-8 items-center relative">
-              {([
-                { slug: 'Todos', label: 'Todos' },
-                ...adminCategories.map((c) => ({ slug: c.slug, label: c.name })),
-              ]).map(({ slug, label }) => {
-                const isActive = selectedCategory === slug
-                return (
-                  <button
-                    key={slug}
-                    onClick={() => setSelectedCategory(slug)}
-                    className="relative py-2 text-xs uppercase tracking-[0.2em] font-sans font-semibold transition-colors duration-300 focus:outline-none cursor-pointer"
-                    style={{ color: isActive ? '#DDE8F5' : '#8B8B8B' }}
-                  >
-                    <span className="hover:text-white-diamond transition-colors duration-200">
-                      {label}
-                    </span>
-                    {isActive && (
-                      <motion.div
-                        layoutId="activeCategoryUnderline"
-                        className="absolute bottom-0 left-0 right-0 h-[2px] bg-gold-action"
-                        transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                      />
-                    )}
-                  </button>
-                )
-              })}
-            </div>
+          <div className="hidden lg:block mb-8 border-b border-steel/10 pb-4">
+            <CategoryScroller options={categoryOptions} selected={selectedCategory} onSelect={setSelectedCategory} />
           </div>
 
           {/* Level 2: Search, Sort, View mode */}
@@ -309,10 +292,7 @@ function CatalogoContent() {
                   </Button>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {([
-                    { slug: 'Todos', label: 'Todos' },
-                    ...adminCategories.map((c) => ({ slug: c.slug, label: c.name })),
-                  ]).map(({ slug, label }) => (
+                  {categoryOptions.map(({ slug, label }) => (
                     <Button
                       key={slug}
                       variant={selectedCategory === slug ? 'default' : 'outline'}
